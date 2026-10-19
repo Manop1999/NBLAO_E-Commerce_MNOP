@@ -61,7 +61,7 @@ export default function App() {
       <AuthProvider>
         <CommerceProvider>
         <ToastProvider>
-          <BrowserRouter>
+          <BrowserRouter basename={import.meta.env.BASE_URL}>
             <GlobalLanguage />
             <Routes>
               {/* Auth pages — standalone layout (no main nav) */}
