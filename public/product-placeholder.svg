@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" role="img" aria-labelledby="title">
+  <title id="title">Product image unavailable</title>
+  <rect width="400" height="300" fill="#f5f7fa"/>
+  <rect x="126" y="70" width="148" height="132" rx="4" fill="none" stroke="#d9e2ec" stroke-width="8"/>
+  <path d="M126 105h148M164 70v132M236 70v132" fill="none" stroke="#d9e2ec" stroke-width="5"/>
+  <path d="M176 229h48" stroke="#d4af37" stroke-width="5"/>
+  <text x="200" y="260" text-anchor="middle" font-family="Arial,sans-serif" font-size="15" fill="#52677d">NB LAO PRODUCT</text>
+</svg>

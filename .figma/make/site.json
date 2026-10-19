@@ -1,0 +1,10 @@
+{
+  "description": "Connects businesses with reliable industrial equipment and solutions through a professional B2B platform featuring product catalogs, industry info, and quote requests.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

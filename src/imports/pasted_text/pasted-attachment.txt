@@ -1,0 +1,285 @@
+Directly implement the following confirmed UX/UI and functional fixes in the existing NB LAO project.
+
+IMPORTANT:
+Do not create a markdown file.
+Do not rebuild the project.
+Do not redesign unrelated pages.
+Preserve the existing NB LAO visual identity, working Checkout, RFQ, Order Confirmation, Order Detail, Quotation Detail and Admin functionality.
+
+1. PRODUCTS DESKTOP VS MOBILE FILTERS
+
+Desktop (>=1024px):
+Do NOT use a Filters button/drawer as the primary product filter interface.
+
+Use a compact persistent Filter Sidebar beside the product grid containing:
+- Category
+- Subcategory
+- Brand
+- Price Range
+- Stock
+- Clear All
+
+Keep the sidebar compact so the product grid still has enough width.
+
+Tablet/Mobile (<1024px):
+Use a compact Filters button that opens the Product Filter Drawer.
+
+2. PRODUCT PAGINATION
+
+Keep the current product page size at exactly 12 products per page.
+
+Examples:
+- 12 products total → show all 12 and NO pagination.
+- 37 products → 12 / 12 / 12 / 1 across pages.
+
+Show:
+"Showing 1–12 of 37 products"
+
+Pagination:
+Previous / page numbers / Next.
+
+Pagination must work correctly with:
+- Search
+- Category
+- Subcategory
+- Brand
+- Price
+- Stock
+
+Whenever search or filters change, reset to page 1.
+
+Do not display an excessive number of products on one page.
+
+3. PRODUCT CATEGORY STRUCTURE
+
+Create a proper Category → Subcategory hierarchy.
+
+Desktop:
+Use a Products Mega Menu.
+
+When hovering OR clicking Products, show a clear mega menu with main categories and their subcategories.
+
+Example:
+Electrical Equipment
+  - Transformers
+  - Switchgear & Circuit Breakers
+  - Control Panels & MCC
+  - Motors & Drives
+  - Metering & Instrumentation
+
+Industrial Machinery
+  - Compressors
+  - Pumps & Valves
+  - Conveyors & Material Handling
+  - Processing Equipment
+
+Each subcategory must be directly clickable and navigate to the correct Product Listing state.
+
+Do not require unnecessary multi-step clicking.
+
+4. MOBILE/TABLET NAVIGATION
+
+Use a Hamburger Navigation Drawer.
+
+Inside the drawer:
+- Home
+- Products
+  - expandable Category groups
+  - expandable Subcategories
+- Industries
+- Services
+- About Us
+- Brands
+- Contact
+- Request a Quote
+
+Use accordion behavior for Products.
+
+Tapping a subcategory must navigate directly to the correct product listing and close the drawer.
+
+Do not require repeated clicks to reach a subcategory.
+
+5. NAVIGATION DRAWER + PRODUCT FILTER DRAWER
+
+Navigation Drawer and Product Filter Drawer must be completely separate functions.
+
+However, they must share one drawer state so they can NEVER be open simultaneously.
+
+Use a single mutually-exclusive state such as:
+null
+navigation
+filters
+
+If Navigation Drawer opens:
+Filter Drawer must close.
+
+If Filter Drawer opens:
+Navigation Drawer must close.
+
+Do NOT solve this only with z-index.
+
+6. SMOOTH DRAWER ANIMATION
+
+Make both drawers feel smooth and professional.
+
+Use:
+- approximately 280–320ms slide animation
+- approximately 180–220ms backdrop fade
+- ease-out transition
+- backdrop
+- body scroll lock while drawer is open
+- close button
+- clicking backdrop closes drawer
+- Escape key closes drawer
+
+Do not use overflow:hidden to hide layout problems.
+
+The drawer must not visually overlap or corrupt the page layout.
+
+7. MOBILE SHOPPING CART
+
+The current Mobile Cart still uses too much vertical space.
+
+Compact each cart item substantially.
+
+Target structure:
+
+[IMAGE] Product Name
+        Brand / SKU
+        Price
+        [-] 2 [+]        Remove
+
+Reduce:
+- unnecessary vertical padding
+- oversized spacing
+- duplicate information
+- excessive card height
+
+Keep Order Summary easy to reach.
+
+Do not change the working Checkout flow.
+
+8. CREATE ACCOUNT INPUT BUG
+
+There is a confirmed functional bug on the Create Account form.
+
+Currently, text input appears to lose focus or only accept approximately one character at a time.
+
+Fix the ROOT CAUSE.
+
+All inputs must support normal continuous typing, paste, editing and backspace.
+
+Test:
+- First Name
+- Last Name
+- Work Email
+- Phone Number
+- Company / Organisation
+- Password
+- Confirm Password
+
+Verify that input components are not being remounted on every keystroke and that changing state does not cause focus loss.
+
+Test this on:
+- Desktop
+- Tablet/iPad
+- Mobile
+
+Do not merely add a visual workaround.
+
+9. HEADER REQUEST A QUOTE → LANGUAGE SWITCHER
+
+Replace the global Header "Request a Quote" button in the location shown in the current design with a real language switcher.
+
+Use:
+English / ລາວ
+
+The language switcher must actually work.
+
+It must:
+- switch the UI language
+- update visible navigation and interface text
+- preserve the selected language during navigation
+- persist the selected language using localStorage
+- restore the selected language after refresh
+
+Do not only change the label.
+
+Do NOT remove Request a Quote functionality from the website completely.
+
+Keep Request a Quote available contextually where it is useful, such as Product Detail, RFQ flow, Cart/RFQ and other relevant business touchpoints.
+
+10. FOOTER DUPLICATION BUG
+
+There is a confirmed bug where the Footer is rendered twice on some pages, especially visible in the Services/page screenshots.
+
+Fix the root cause.
+
+There must be exactly ONE Footer per page.
+
+Audit:
+- Home
+- Products
+- Product Detail
+- Services
+- Industries
+- About Us
+- Brands
+- Contact
+- Cart
+- Account
+- RFQ
+
+Check Desktop, Tablet and Mobile.
+
+Do not simply hide the second footer with CSS.
+
+Find and fix the duplicate Footer rendering/source.
+
+11. FOOTER HEIGHT
+
+After fixing the duplication, keep the Footer compact.
+
+Preserve:
+- NB LAO company information
+- Products
+- Company links
+- Quick Access
+- Contact information
+- Social/contact links
+- Copyright
+- Privacy Policy
+- Terms of Service
+
+Avoid unnecessary vertical whitespace.
+
+On Mobile, use compact collapsible groups where appropriate.
+
+12. RESPONSIVE REGRESSION CHECK
+
+Verify all affected changes at:
+375px
+390px
+430px
+768px
+820px
+834px
+1024px
+1280px
+1440px
+
+Check specifically:
+- no horizontal overflow
+- no drawer overlap
+- no duplicate footer
+- no broken input focus
+- no excessive vertical spacing
+- pagination works
+- product filters work
+- category/subcategory navigation works
+- language switch works
+
+IMPORTANT:
+Do not modify working Checkout, RFQ, Order Confirmation, Order Detail, Quotation Detail or Admin unless required to prevent a regression.
+
+Complete all items above in one implementation pass before finishing.
