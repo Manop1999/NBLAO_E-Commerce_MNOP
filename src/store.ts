@@ -28,8 +28,10 @@ import {
   DEFAULT_PARTNERS,
   getActiveAdvertisements,
   LeadershipItem,
+  MAIN_CAMPAIGNS_RESTORED_KEY,
   migrateCustomerService,
   Partner,
+  restoreMainCampaigns,
 } from "./content"
 
 export interface CartItem {
@@ -168,11 +170,14 @@ const DEFAULT_LEGACY_AD = {
 
 const DEMO_SEED_KEY = "nblao_demo_seed_v1"
 
-function save<T>(key: string, value: T) {
+/** Returns false when the browser refuses the write, so callers can avoid marking work as done. */
+function save<T>(key: string, value: T): boolean {
   try {
     localStorage.setItem(key, JSON.stringify(value))
+    return true
   } catch {
     /* quota exceeded or private mode */
+    return false
   }
 }
 
@@ -228,8 +233,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [salesPlacements, setSalesPlacements] = useState<SalesPlacement[]>(() =>
     load("nblao_sales_placements", []),
   )
-  const [advertisements, setAdvertisements] = useState<Advertisement[]>(() =>
-    migrateLegacyAdvertisements(load<Advertisement[]>("nblao_advertisements", DEFAULT_ADVERTISEMENTS)).map(
+  const [advertisements, setAdvertisements] = useState<Advertisement[]>(() => {
+    const loaded = migrateLegacyAdvertisements(load<Advertisement[]>("nblao_advertisements", DEFAULT_ADVERTISEMENTS)).map(
       (advertisement) => ({
         ...advertisement,
         placement: advertisement.placement || "main",
@@ -237,8 +242,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           ? "/advertisements/power-solutions.jpg"
           : advertisement.image,
       }),
-    ),
-  )
+    )
+    // The flag is written by the save effect below, so this initializer stays pure.
+    return load(MAIN_CAMPAIGNS_RESTORED_KEY, false) ? loaded : restoreMainCampaigns(loaded)
+  })
   const [customerService, setCustomerService] =
     useState<CustomerServiceSettings>(() =>
       migrateCustomerService(load("nblao_customer_service", DEFAULT_CUSTOMER_SERVICE)),
@@ -294,7 +301,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     save("nblao_sales_placements", salesPlacements)
   }, [salesPlacements])
   useEffect(() => {
-    save("nblao_advertisements", advertisements)
+    // Mark the one-time campaign update done only once the updated list is actually stored;
+    // otherwise it simply runs again on the next load.
+    if (save("nblao_advertisements", advertisements)) save(MAIN_CAMPAIGNS_RESTORED_KEY, true)
   }, [advertisements])
   useEffect(() => {
     save("nblao_customer_service", customerService)

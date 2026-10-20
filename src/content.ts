@@ -81,6 +81,39 @@ const campaign = (n: number): Advertisement => ({
 
 export const DEFAULT_ADVERTISEMENTS: Advertisement[] = [campaign(1), campaign(2), campaign(3)]
 
+/** Set once a browser's saved list has been through restoreMainCampaigns, so later Admin edits stick. */
+export const MAIN_CAMPAIGNS_RESTORED_KEY = 'nblao_main_campaigns_restored_v1'
+
+/**
+ * One-time update for browsers whose saved list shows other banners (e.g. an Admin-uploaded
+ * image) in the main carousel. The three bundled campaigns become the active main slides, in
+ * order, with their images restored; their titles and links are kept. Every other main ad is
+ * kept but deactivated so an Admin can re-enable it, and an image that had replaced a bundled
+ * campaign's image is kept as its own inactive ad. Side ads are left untouched.
+ */
+export function restoreMainCampaigns(saved: Advertisement[]): Advertisement[] {
+  const campaignIds = new Set(DEFAULT_ADVERTISEMENTS.map(ad => ad.id))
+  const takenIds = new Set([...saved.map(ad => ad.id), ...campaignIds])
+  // `<id>-previous-image`, then `-2`, `-3`, ... so a rerun never collides with an earlier copy.
+  const uniqueId = (preferred: string) => {
+    let id = preferred
+    for (let n = 2; takenIds.has(id); n++) id = `${preferred}-${n}`
+    takenIds.add(id)
+    return id
+  }
+  const preserved: Advertisement[] = []
+  const campaigns = DEFAULT_ADVERTISEMENTS.map(campaignAd => {
+    const existing = saved.find(ad => ad.id === campaignAd.id)
+    if (!existing) return campaignAd
+    if (existing.image && existing.image !== campaignAd.image) preserved.push({ ...existing, id: uniqueId(`${existing.id}-previous-image`), active: false })
+    return { ...existing, image: campaignAd.image, placement: 'main' as const, active: true, displayOrder: campaignAd.displayOrder, startDate: '', endDate: '' }
+  })
+  const others = saved
+    .filter(ad => !campaignIds.has(ad.id))
+    .map(ad => ((ad.placement || 'main') === 'main' && ad.active ? { ...ad, active: false } : ad))
+  return [...campaigns, ...preserved, ...others]
+}
+
 export const DEFAULT_CUSTOMER_SERVICE: CustomerServiceSettings = {
   addressEn: '123 Industrial Zone, Saysettha, Vientiane, Laos PDR',
   addressLo: '123 ເຂດອຸດສາຫະກຳ, ໄຊເສດຖາ, ວຽງຈັນ, ສປປ ລາວ',
