@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { assetUrl } from '../lib/assetUrl'
 
 const NAVY = 'var(--nb-navy)'
 const BLUE = 'var(--nb-primary)'
@@ -17,7 +18,7 @@ export default function Industries() {
   return (
     <div style={{ background: 'var(--nb-bg)' }}>
       <section className="relative overflow-hidden" style={{ background: NAVY }}>
-        <img src="/site-images/578c95d1df8b.jpg" alt="" className="absolute inset-0 w-full h-full object-cover opacity-20" />
+        <img src={assetUrl("/site-images/578c95d1df8b.jpg")} alt="" className="absolute inset-0 w-full h-full object-cover opacity-20" />
         <div className="relative max-w-[1440px] mx-auto px-6 lg:px-16 py-16 lg:py-20">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-8 h-[2px]" style={{ background: GOLD }} />
@@ -34,7 +35,7 @@ export default function Industries() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {INDUSTRIES.map(industry => (
             <article key={industry.name} className="rounded-lg bg-white flex flex-col overflow-hidden" style={{ border: '1px solid var(--nb-border)' }}>
-              <img src={industry.image} alt={industry.name} className="w-full h-48 object-cover" />
+              <img src={assetUrl(industry.image)} alt={industry.name} className="w-full h-48 object-cover" />
               <div className="p-5 flex flex-col flex-1">
                 <h2 className="font-display font-700 text-[20px] mb-2" style={{ color: NAVY }}>{industry.name}</h2>
                 <p className="font-ui text-[13px] leading-relaxed mb-5 flex-1" style={{ color: 'var(--nb-text-secondary)' }}>{industry.description}</p>

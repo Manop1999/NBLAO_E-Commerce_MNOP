@@ -9,6 +9,7 @@ import { useT } from '../i18n'
 import { getBrandName } from '../brands'
 import LogoCarousel from '../components/LogoCarousel'
 import AdvertisementSlider from '../components/AdvertisementSlider'
+import { assetUrl } from '../lib/assetUrl'
 
 const NAVY = 'var(--nb-navy)'
 const BLUE = 'var(--nb-primary)'
@@ -80,7 +81,7 @@ function Hero() {
     <section className="relative overflow-hidden lg:flex lg:w-full lg:items-center lg:aspect-[2/1] lg:min-h-[520px] lg:max-h-[680px]" style={{ background: 'var(--nb-navy)' }}>
       <div className="absolute inset-0" style={{ pointerEvents: 'none' }}>
         <img
-          src="/site-images/73dcaba7ec9f.jpg"
+          src={assetUrl("/site-images/73dcaba7ec9f.jpg")}
           alt="High-voltage electrical substation"
           width={1600}
           height={900}
@@ -144,7 +145,7 @@ function Advertisements() {
 
   const sideContent = (sideAdvertisement: typeof sideAdvertisements[number]) => (
     <div className="rounded-xl relative h-full min-h-40 overflow-hidden">
-      <img src={sideAdvertisement.image} alt="" className="absolute inset-0 w-full h-full object-cover" />
+      <img src={assetUrl(sideAdvertisement.image)} alt="" className="absolute inset-0 w-full h-full object-cover" />
     </div>
   )
 
@@ -223,7 +224,7 @@ function SalesPromotions() {
             return (
               <article key={placement.id} className="rounded-lg overflow-hidden flex flex-col" style={{ background: '#fff', border: '1px solid var(--nb-border)' }} onMouseEnter={() => setHovered(product.id)} onMouseLeave={() => setHovered(null)}>
                 <div className="relative overflow-hidden bg-slate-100 h-[132px] sm:h-36 lg:h-40">
-                  <Link to={`/products/${product.id}`} className="block w-full h-full"><img src={product.img || '/product-placeholder.svg'} onError={event => { event.currentTarget.src = '/product-placeholder.svg' }} alt={product.name} className="w-full h-full object-contain transition-transform duration-500" style={{ transform: isHov ? 'scale(1.05)' : 'scale(1)' }} /></Link>
+                  <Link to={`/products/${product.id}`} className="block w-full h-full"><img src={assetUrl(product.img || '/product-placeholder.svg')} onError={event => { event.currentTarget.src = assetUrl('/product-placeholder.svg') }} alt={product.name} className="w-full h-full object-contain transition-transform duration-500" style={{ transform: isHov ? 'scale(1.05)' : 'scale(1)' }} /></Link>
                   <span className="rounded-sm absolute top-2 left-2 px-1.5 py-0.5 font-ui text-[8px] font-700 tracking-[0.12em] text-white" style={{ background: placement.type === 'promotion' ? GOLD : BLUE }}>{placement.type === 'promotion' ? 'SALE' : 'SELECTED'}</span>
                   <button type="button" onClick={() => toggleWishlist(product.id)} aria-label={inWish ? `Remove ${product.name} from wishlist` : `Add ${product.name} to wishlist`} className="rounded-md absolute top-2 right-2 w-6 h-6 flex items-center justify-center bg-white/90 hover:bg-white" style={{ color: inWish ? '#ef4444' : '#94a3b8' }}><HeartIcon filled={inWish} /></button>
                   <div className="absolute bottom-0 left-0 right-0 h-[2px] transition-opacity duration-300" style={{ background: GOLD, opacity: isHov ? 1 : 0 }} />
@@ -280,7 +281,7 @@ function ProductCategories() {
                 onMouseLeave={() => setHovered(null)}
               >
                 <div className="relative overflow-hidden bg-slate-200" style={{ height: 90 }}>
-                  <img src={CAT_IMAGES[cat]} alt={cat} className="w-full h-full object-cover transition-transform duration-500"
+                  <img src={assetUrl(CAT_IMAGES[cat])} alt={cat} className="w-full h-full object-cover transition-transform duration-500"
                     style={{ transform: isHov ? 'scale(1.06)' : 'scale(1)', opacity: isHov ? 0.85 : 0.72 }} />
                   <div className="absolute inset-0 transition-colors duration-300" style={{ background: isHov ? 'rgba(8,46,97,0.18)' : 'rgba(8,46,97,0.42)' }} />
                   <div className="absolute bottom-0 left-0 right-0 h-[2px] transition-all duration-300" style={{ background: GOLD, opacity: isHov ? 1 : 0 }} />
@@ -330,7 +331,7 @@ function FeaturedProducts() {
                 onMouseEnter={() => setHovered(p.id)} onMouseLeave={() => setHovered(null)}>
                 <div className="relative overflow-hidden bg-slate-100" style={{ height: 140 }}>
                   <Link to={`/products/${p.id}`}>
-                    <img src={p.img || '/product-placeholder.svg'} onError={event => { event.currentTarget.src = '/product-placeholder.svg' }} alt={p.name} className="w-full h-full object-contain transition-transform duration-500"
+                    <img src={assetUrl(p.img || '/product-placeholder.svg')} onError={event => { event.currentTarget.src = assetUrl('/product-placeholder.svg') }} alt={p.name} className="w-full h-full object-contain transition-transform duration-500"
                       style={{ transform: isHov ? 'scale(1.05)' : 'scale(1)' }} />
                   </Link>
                   <button onClick={() => toggleWishlist(p.id)}
@@ -408,7 +409,7 @@ function IndustriesSection() {
           </div>
           <div className="hidden lg:block relative">
             <div className="relative overflow-hidden" style={{ height: 380, background: 'var(--nb-navy)' }}>
-              <img src="/site-images/3ea03ff0d86f.jpg"
+              <img src={assetUrl("/site-images/3ea03ff0d86f.jpg")}
                 alt="Industrial facility" className="w-full h-full object-cover" style={{ opacity: 0.55 }} />
               <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(8,46,97,0.92) 0%, rgba(8,46,97,0.2) 55%, transparent 100%)' }} />
               <div className="absolute bottom-0 left-0 right-0 p-6">
@@ -491,7 +492,7 @@ function CTASection() {
   return (
     <section className="relative overflow-hidden py-10 lg:py-16" style={{ background: 'var(--nb-navy)' }}>
       <div className="absolute inset-0" style={{ pointerEvents: 'none' }}>
-        <img src="/site-images/5ebe4e342d35.jpg"
+        <img src={assetUrl("/site-images/5ebe4e342d35.jpg")}
           alt="Industrial factory" className="w-full h-full object-cover" style={{ opacity: 0.18 }} />
         <div className="absolute inset-0" style={{ background: 'rgba(7,33,61,0.55)', pointerEvents: 'none' }} />
       </div>

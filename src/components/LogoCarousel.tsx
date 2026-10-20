@@ -1,3 +1,4 @@
+import { assetUrl } from '../lib/assetUrl'
 export interface LogoCarouselItem {
   id: string
   name: string
@@ -19,7 +20,7 @@ export function LogoGrid({ items, ariaLabel, variant = 'brand', limit }: LogoCar
   return (
     <div className={`partner-logo-grid partner-logo-grid--${variant}`} role="list" aria-label={ariaLabel}>
       {shown.map(item => {
-        const img = <img src={item.logo} alt={item.name} loading="lazy" />
+        const img = <img src={assetUrl(item.logo)} alt={item.name} loading="lazy" />
         return (
           <div className="partner-logo-grid-item" role="listitem" key={item.id} title={item.name}>
             {item.url ? (
@@ -62,7 +63,7 @@ export default function LogoCarousel({ items, ariaLabel, variant = 'brand', limi
 
   const strip = (copy: number) => shown.map(item => {
     const isPrimary = copy === 0
-    const logo = <img src={item.logo} alt={isPrimary ? item.name : ''} loading="lazy" />
+    const logo = <img src={assetUrl(item.logo)} alt={isPrimary ? item.name : ''} loading="lazy" />
     return (
       <div className="partner-logo-marquee__item" role="listitem" key={`${copy}-${item.id}`} title={item.name}>
         {item.url

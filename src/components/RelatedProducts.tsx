@@ -8,6 +8,7 @@ import { ProductPrice } from '../commerce/ui'
 import { StockBadge } from './StockBadge'
 import { RatingSummary } from './ProductReviews'
 import { getRelatedProducts } from '../lib/related'
+import { assetUrl } from '../lib/assetUrl'
 
 /** Compact related-product grid: two rows on first view, the rest behind View All. */
 export default function RelatedProducts({ product }: { product: Product }) {
@@ -36,7 +37,7 @@ export default function RelatedProducts({ product }: { product: Product }) {
         {related.map((p, i) => (
           <Link key={p.id} to={`/products/${p.id}`} className={`rounded-lg no-underline bg-white flex flex-col min-w-0 overflow-hidden hover:shadow-md transition-shadow ${hiddenClass(i)}`} style={{ border: '1px solid var(--nb-border)' }}>
             <div className="aspect-[4/3] bg-[var(--nb-bg)]">
-              <img src={p.img || '/product-placeholder.svg'} onError={(e) => { e.currentTarget.src = '/product-placeholder.svg' }} alt={p.name} loading="lazy" className="w-full h-full object-contain" />
+              <img src={assetUrl(p.img || '/product-placeholder.svg')} onError={(e) => { e.currentTarget.src = assetUrl('/product-placeholder.svg') }} alt={p.name} loading="lazy" className="w-full h-full object-contain" />
             </div>
             <div className="p-2.5 flex flex-col gap-1 flex-1 min-w-0">
               <span className="font-ui text-[9px] font-700 tracking-[0.12em] uppercase truncate" style={{ color: 'var(--nb-primary-deep)' }}>{getBrandName(getBrandById(p.brandId), lang)}</span>

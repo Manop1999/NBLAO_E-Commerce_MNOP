@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useStore } from '../store'
 import { useT } from '../i18n'
+import { assetUrl } from '../lib/assetUrl'
 
 const NAVY = 'var(--nb-navy)'
 const BLUE = 'var(--nb-primary)'
@@ -176,7 +177,7 @@ export default function RFQ() {
                     {rfqItems.map(item => (
                       <div key={rk(item)} className="flex items-center gap-4 py-4" style={{ borderBottom: '1px solid var(--nb-bg)' }}>
                         <div className="rounded-md overflow-hidden shrink-0" style={{ width: 64, height: 48, background: 'var(--nb-bg)' }}>
-                          <img src={item.img} alt={item.name} className="w-full h-full object-cover" />
+                          <img src={assetUrl(item.img)} alt={item.name} className="w-full h-full object-cover" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="font-display font-700 text-[14px]" style={{ color: NAVY }}>{item.name}</div>

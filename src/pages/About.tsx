@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useT } from '../i18n'
 import { useStore } from '../store'
+import { assetUrl } from '../lib/assetUrl'
 
 const NAVY = 'var(--nb-navy)'
 const BLUE = 'var(--nb-primary)'
@@ -43,7 +44,7 @@ export default function About() {
       {/* Hero */}
       <section className="relative overflow-hidden" style={{ background: NAVY, minHeight: 320 }}>
         <div className="absolute inset-0">
-          <img src="/site-images/578c95d1df8b.jpg" alt="Industrial" className="w-full h-full object-cover opacity-20" />
+          <img src={assetUrl("/site-images/578c95d1df8b.jpg")} alt="Industrial" className="w-full h-full object-cover opacity-20" />
         </div>
         <div className="relative max-w-[1440px] mx-auto px-6 lg:px-16 py-20">
           <div className="flex items-center gap-3 mb-5">
@@ -127,7 +128,7 @@ export default function About() {
             {INDUSTRIES.map(ind => (
               <div key={ind.name} className="rounded-md overflow-hidden group" style={{ border: '1px solid var(--nb-border)' }}>
                 <div className="overflow-hidden" style={{ height: 160 }}>
-                  <img src={ind.img} alt={ind.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                  <img src={assetUrl(ind.img)} alt={ind.name} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
                 </div>
                 <div className="rounded-lg p-4 bg-white">
                   <div className="font-display font-700 text-[14px] mb-1.5" style={{ color: NAVY }}>{ind.name}</div>
@@ -169,7 +170,7 @@ export default function About() {
           <h2 className="font-display font-800 text-[30px]" style={{ color: NAVY }}>Our Leadership Team</h2>
         </div>
         {ownerMessages.map(item => <div key={item.id} className="rounded-lg grid md:grid-cols-[240px_1fr] bg-white mb-6" style={{ border: '1px solid var(--nb-border)' }}>
-          {item.image && <img src={item.image} alt={localized(item.nameEn, item.nameLo)} className="w-full h-64 md:h-full object-cover object-top" />}
+          {item.image && <img src={assetUrl(item.image)} alt={localized(item.nameEn, item.nameLo)} className="w-full h-64 md:h-full object-cover object-top" />}
           <div className="p-6 md:p-8">
             <div className="font-ui text-[10px] uppercase tracking-[0.18em] mb-2" style={{ color: GOLD }}>Message From Owner</div>
             <h3 className="font-display font-700 text-[20px]" style={{ color: NAVY }}>{localized(item.nameEn, item.nameLo)}</h3>
@@ -179,7 +180,7 @@ export default function About() {
         </div>)}
         {expertise.length > 0 && <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
           {expertise.map(item => <div key={item.id} className="rounded-lg bg-white p-5" style={{ border: '1px solid var(--nb-border)' }}>
-            {item.image && <img src={item.image} alt="" className="w-full h-32 object-cover mb-4" />}
+            {item.image && <img src={assetUrl(item.image)} alt="" className="w-full h-32 object-cover mb-4" />}
             <h3 className="font-display font-700 text-[16px]" style={{ color: NAVY }}>{localized(item.titleEn || item.nameEn, item.titleLo || item.nameLo)}</h3>
             {localized(item.positionEn, item.positionLo) && <div className="font-ui text-[11px] mt-1" style={{ color: BLUE }}>{localized(item.positionEn, item.positionLo)}</div>}
             <p className="font-ui text-[12px] leading-relaxed mt-2" style={{ color: 'var(--nb-text-secondary)' }}>{localized(item.descriptionEn, item.descriptionLo)}</p>
@@ -189,7 +190,7 @@ export default function About() {
           {[...management, ...team].map(item => (
             <div key={item.id} className="rounded-lg bg-white overflow-hidden" style={{ border: '1px solid var(--nb-border)' }}>
               {item.image && <div className="rounded-md h-52 overflow-hidden">
-                <img src={item.image} alt={localized(item.nameEn, item.nameLo)} className="w-full h-full object-cover object-top" />
+                <img src={assetUrl(item.image)} alt={localized(item.nameEn, item.nameLo)} className="w-full h-full object-cover object-top" />
               </div>
               }
               <div className="p-4" style={{ borderTop: `2px solid ${GOLD}` }}>

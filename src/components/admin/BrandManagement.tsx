@@ -1,6 +1,7 @@
 import { ChangeEvent, FormEvent, useMemo, useState } from 'react'
 import { Brand, sortBrands } from '../../brands'
 import { useStore } from '../../store'
+import { assetUrl } from '../../lib/assetUrl'
 
 const NAVY = 'var(--nb-navy)'
 const BLUE = 'var(--nb-primary)'
@@ -132,7 +133,7 @@ export default function BrandManagement() {
                   <td className="px-4 py-3">
                     <div className="rounded-lg w-24 h-12 flex items-center justify-center p-2" style={{ border: '1px solid #eef2f6', background: '#fff' }}>
                       {brand.logo
-                        ? <img src={brand.logo} alt={brand.name} className="max-w-full max-h-full object-contain" />
+                        ? <img src={assetUrl(brand.logo)} alt={brand.name} className="max-w-full max-h-full object-contain" />
                         : <span className="font-ui text-[10px]" style={{ color: '#94a3b8' }}>No logo</span>}
                     </div>
                   </td>
@@ -228,7 +229,7 @@ export default function BrandManagement() {
                 <div className="font-ui text-[11px] font-600 mb-1.5" style={{ color: NAVY }}>Logo *</div>
                 <div className="h-32 flex items-center justify-center p-4 mb-3" style={{ border: '1px dashed #cbd5e1', background: '#F8FAFC' }}>
                   {editing.logo
-                    ? <img src={editing.logo} alt="Logo preview" className="max-w-full max-h-full object-contain" />
+                    ? <img src={assetUrl(editing.logo)} alt="Logo preview" className="max-w-full max-h-full object-contain" />
                     : <span className="font-ui text-[11px] text-center" style={{ color: '#94a3b8' }}>Logo preview</span>}
                 </div>
                 <label className="rounded-sm block text-center font-ui text-[11px] font-600 px-3 py-2.5 cursor-pointer" style={{ border: '1px solid var(--nb-border)', color: NAVY }}>

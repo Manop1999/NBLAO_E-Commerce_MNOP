@@ -15,6 +15,7 @@ import {
 } from "../components/admin/ContentManagement"
 import LeadershipManagement from "../components/admin/LeadershipManagement"
 import SalesManagement from "../components/admin/SalesManagement"
+import { assetUrl } from "../lib/assetUrl"
 
 const NAVY = "var(--nb-navy)"
 const BLUE = "var(--nb-primary)"
@@ -418,7 +419,7 @@ function DashboardPanel() {
                       }}
                     >
                       <img
-                        src={p.img}
+                        src={assetUrl(p.img)}
                         alt={p.name}
                         className="w-full h-full object-cover"
                       />

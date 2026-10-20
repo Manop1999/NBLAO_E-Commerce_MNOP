@@ -5,6 +5,7 @@ import { useToast } from '../components/Toast'
 import { useCommerce } from '../commerce/CommerceProvider'
 import { useCT, fill } from '../commerce/text'
 import { useIssueText } from '../commerce/ui'
+import { assetUrl } from '../lib/assetUrl'
 
 const NAVY = 'var(--nb-navy)'
 const BLUE = 'var(--nb-primary)'
@@ -102,7 +103,7 @@ export default function Cart() {
                 <div className="hidden md:grid grid-cols-[1fr_120px_100px_100px_40px] gap-4 items-center px-6 py-5">
                   <div className="flex gap-4 items-center">
                     <Link to={`/products/${item.id}`} className="rounded-md shrink-0 overflow-hidden" style={{ width: 72, height: 54, background: 'var(--nb-bg)' }}>
-                      <img src={item.img} alt={item.name} className="w-full h-full object-cover" />
+                      <img src={assetUrl(item.img)} alt={item.name} className="w-full h-full object-cover" />
                     </Link>
                     <div className="min-w-0">
                       <div className="font-ui text-[10px] font-600 tracking-wide uppercase mb-1" style={{ color: BLUE }}>{item.category}</div>
@@ -136,7 +137,7 @@ export default function Cart() {
                 {/* Mobile compact card */}
                 <div className="md:hidden flex gap-2.5 px-3 py-2.5">
                   <Link to={`/products/${item.id}`} className="rounded-md shrink-0 overflow-hidden" style={{ width: 52, height: 52, minWidth: 52, background: 'var(--nb-bg)' }}>
-                    <img src={item.img} alt={item.name} className="w-full h-full object-cover" />
+                    <img src={assetUrl(item.img)} alt={item.name} className="w-full h-full object-cover" />
                   </Link>
                   <div className="flex-1 min-w-0">
                     <Link to={`/products/${item.id}`} className="no-underline">

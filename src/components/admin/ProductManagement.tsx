@@ -7,6 +7,7 @@ import { useCommerce } from '../../commerce/CommerceProvider'
 import { LEGACY_PRICE_CURRENCY } from '../../commerce/engine'
 import { validateVariants, aggregateStock, hasVariants, isObsoleteVariant } from '../../lib/variants'
 import { getStockStatus, STOCK_STATUS_STYLE } from '../../lib/stockStatus'
+import { assetUrl } from '../../lib/assetUrl'
 
 const CATALOG_AUDIT_KEY = 'nblao_catalog_audit'
 function logCatalogAudit(action: string, product: Product, detail: string) {
@@ -125,7 +126,7 @@ export default function ProductManagement() {
             {products.map(product => (
               <tr key={product.id} className="border-b border-slate-100">
                 <td className="px-4 py-3"><div className="flex items-center gap-3">
-                  <img src={product.img || '/product-placeholder.svg'} onError={event => { event.currentTarget.src = '/product-placeholder.svg' }} alt="" className="w-12 h-10 object-contain bg-slate-50" />
+                  <img src={assetUrl(product.img || '/product-placeholder.svg')} onError={event => { event.currentTarget.src = assetUrl('/product-placeholder.svg') }} alt="" className="w-12 h-10 object-contain bg-slate-50" />
                   <span className="font-ui text-[12px] font-600 max-w-52 line-clamp-2" style={{ color: NAVY }}>{product.name}</span>
                 </div></td>
                 <td className="px-4 py-3 font-ui text-[11px] text-slate-500">{product.sku}</td>
@@ -175,7 +176,7 @@ export default function ProductManagement() {
                 otherSkus={products.filter(p => p.id !== editing.id).flatMap(p => [p.sku, ...(p.variants ?? []).map(v => v.sku)])}
                 onChange={(options, variants) => setEditing(current => current ? { ...current, options, variants } : current)} />
             </div>
-            {editing.images.length > 0 && <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mt-4">{editing.images.map((image, index) => <div key={`${image.slice(0, 30)}-${index}`} className="relative border p-1" style={{ borderColor: editing.img === image ? BLUE : 'var(--nb-border)' }}><button type="button" onClick={() => setField('img', image)} className="block w-full"><img src={image} alt="" className="w-full h-16 object-contain" /></button><button type="button" onClick={() => { const images = editing.images.filter((_, imageIndex) => imageIndex !== index); setEditing({ ...editing, images, img: editing.img === image ? images[0] || '' : editing.img }) }} className="absolute top-0 right-0 bg-white text-red-600 px-1">×</button><span className="block text-center font-ui text-[9px] text-slate-500">{editing.img === image ? 'Primary' : 'Set primary'}</span></div>)}</div>}
+            {editing.images.length > 0 && <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mt-4">{editing.images.map((image, index) => <div key={`${image.slice(0, 30)}-${index}`} className="relative border p-1" style={{ borderColor: editing.img === image ? BLUE : 'var(--nb-border)' }}><button type="button" onClick={() => setField('img', image)} className="block w-full"><img src={assetUrl(image)} alt="" className="w-full h-16 object-contain" /></button><button type="button" onClick={() => { const images = editing.images.filter((_, imageIndex) => imageIndex !== index); setEditing({ ...editing, images, img: editing.img === image ? images[0] || '' : editing.img }) }} className="absolute top-0 right-0 bg-white text-red-600 px-1">×</button><span className="block text-center font-ui text-[9px] text-slate-500">{editing.img === image ? 'Primary' : 'Set primary'}</span></div>)}</div>}
             {error && <p className="font-ui text-[12px] text-red-600 mt-4">{error}</p>}
             <div className="flex justify-end gap-2 mt-6"><button type="button" onClick={() => setEditing(null)} className="rounded-md font-ui text-[12px] px-4 py-2 border border-slate-300">Cancel</button><button className="rounded-md font-ui text-[12px] font-600 px-5 py-2 text-white" style={{ background: BLUE }}>Save Product</button></div>
           </form>

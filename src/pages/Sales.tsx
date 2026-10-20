@@ -6,6 +6,7 @@ import { getBrandName } from "../brands"
 import { StockBadge } from "../components/StockBadge"
 import { useToast } from "../components/Toast"
 import type { Product } from "../data"
+import { assetUrl } from "../lib/assetUrl"
 
 const NAVY = "var(--nb-navy)"
 const BLUE = "var(--nb-primary)"
@@ -50,9 +51,9 @@ function SalesProductCard({
       >
         <Link to={`/products/${product.id}`} className="block w-full h-full">
           <img
-            src={product.img || "/product-placeholder.svg"}
+            src={assetUrl(product.img || "/product-placeholder.svg")}
             onError={(event) => {
-              event.currentTarget.src = "/product-placeholder.svg"
+              event.currentTarget.src = assetUrl("/product-placeholder.svg")
             }}
             alt={product.name}
             className="w-full h-full object-contain"

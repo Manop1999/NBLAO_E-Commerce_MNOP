@@ -5,6 +5,7 @@ import { useStore } from '../store'
 import { StockBadge } from '../components/StockBadge'
 import { useT } from '../i18n'
 import { getBrandName } from '../brands'
+import { assetUrl } from '../lib/assetUrl'
 
 const NAVY = 'var(--nb-navy)'
 const BLUE = 'var(--nb-primary)'
@@ -82,10 +83,10 @@ export default function Compare() {
                     </button>
                     <div className="rounded-md w-full aspect-square max-w-[140px] mx-auto mb-3 overflow-hidden" style={{ background: 'var(--nb-bg)', border: '1px solid var(--nb-border)' }}>
                       <img
-                        src={p.img || '/product-placeholder.svg'}
+                        src={assetUrl(p.img || '/product-placeholder.svg')}
                         alt={p.img ? p.name : ''}
                         className="w-full h-full object-contain"
-                        onError={(event) => { event.currentTarget.src = '/product-placeholder.svg' }}
+                        onError={(event) => { event.currentTarget.src = assetUrl('/product-placeholder.svg') }}
                       />
                     </div>
                     <Link

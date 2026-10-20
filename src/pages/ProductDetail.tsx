@@ -13,6 +13,7 @@ import RelatedProducts from '../components/RelatedProducts'
 import { hasVariants, isSelectionComplete, pruneSelection, resolveVariant, variantCanBePurchased, variantLabel, type Selection } from '../lib/variants'
 import { useToast } from '../components/Toast'
 import { DEMO_DOCUMENT_TITLES } from '../lib/demoProducts'
+import { assetUrl } from '../lib/assetUrl'
 
 const NAVY = 'var(--nb-navy)'
 const BLUE = 'var(--nb-primary)'
@@ -147,14 +148,14 @@ export default function ProductDetail() {
           {/* Gallery */}
           <div>
             <div className="rounded-lg bg-white overflow-hidden mb-3 h-[200px] sm:h-[300px] lg:h-[420px]" style={{ border: '1px solid var(--nb-border)' }}>
-              <img src={gallery[activeImg] || gallery[0] || product.img || '/product-placeholder.svg'} onError={event => { event.currentTarget.src = '/product-placeholder.svg' }} alt={product.name} className="w-full h-full object-contain" />
+              <img src={assetUrl(gallery[activeImg] || gallery[0] || product.img || '/product-placeholder.svg')} onError={event => { event.currentTarget.src = assetUrl('/product-placeholder.svg') }} alt={product.name} className="w-full h-full object-contain" />
             </div>
             {gallery.length > 1 && (
               <div className="flex gap-2">
                 {gallery.map((img, i) => (
                   <button key={i} onClick={() => setActiveImg(i)}
                     className="rounded-md overflow-hidden transition-all" style={{ width: 72, height: 54, border: `2px solid ${i === activeImg ? BLUE : 'var(--nb-border)'}` }}>
-                    <img src={img || '/product-placeholder.svg'} onError={event => { event.currentTarget.src = '/product-placeholder.svg' }} alt={`View ${i + 1}`} className="w-full h-full object-contain" />
+                    <img src={assetUrl(img || '/product-placeholder.svg')} onError={event => { event.currentTarget.src = assetUrl('/product-placeholder.svg') }} alt={`View ${i + 1}`} className="w-full h-full object-contain" />
                   </button>
                 ))}
               </div>
@@ -165,7 +166,7 @@ export default function ProductDetail() {
           <div className="rounded-lg bg-white p-7" style={{ border: '1px solid var(--nb-border)', alignSelf: 'start' }}>
             {/* Brand + certifications */}
             <div className="flex items-center gap-2 mb-3">
-              {productBrand?.logo && <img src={productBrand.logo} alt="" className="w-auto object-contain" style={{ maxHeight: 22, maxWidth: 90 }} />}
+              {productBrand?.logo && <img src={assetUrl(productBrand.logo)} alt="" className="w-auto object-contain" style={{ maxHeight: 22, maxWidth: 90 }} />}
               <span className="font-display font-700 text-[13px] tracking-wide" style={{ color: BLUE }}>{brandName}</span>
               {certifications.map(c => (
                 <span key={c} className="rounded-sm font-ui text-[9px] px-2 py-0.5 tracking-wide" style={{ background: '#F0F4F8', color: '#607080' }}>{c}</span>

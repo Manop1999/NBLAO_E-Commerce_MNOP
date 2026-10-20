@@ -2,6 +2,7 @@ import { defineConfig, type HtmlTagDescriptor, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'node:path'
+import { copyFileSync } from 'node:fs'
 
 import siteConfiguration from './.figma/make/site.json'
 
@@ -24,6 +25,7 @@ react(),
       figmaErrorOverlayReplay(),
       figmaReactRefreshBoundaryFallback(),
       figmaMakeKitPlugin({ storiesGlob: '/src/**/*.stories.{ts,tsx,js,jsx}' }),
+      githubPagesSpaFallback(),
     ],
     resolve: {
       // The Figma preview loads optimized dependencies alongside the app entry.
@@ -386,6 +388,24 @@ function figmaMakeKitPlugin(options: { storiesGlob: string | string[] }): Plugin
           next(err as Error)
         }
       })
+    },
+  }
+}
+
+/**
+ * GitHub Pages has no SPA rewrites: a direct load of a client-side route such as
+ * /NBLAO_E-Commerce_MNOP/industries gets the site's 404.html. Shipping the app shell as
+ * 404.html lets BrowserRouter render that route in place (URL, query and hash untouched,
+ * no redirect). Asset URLs in the shell are absolute under `base`, so they resolve from
+ * any nested path.
+ */
+function githubPagesSpaFallback(): Plugin {
+  return {
+    name: 'github-pages-spa-fallback',
+    apply: 'build',
+    writeBundle(options) {
+      if (!options.dir) return
+      copyFileSync(path.join(options.dir, 'index.html'), path.join(options.dir, '404.html'))
     },
   }
 }

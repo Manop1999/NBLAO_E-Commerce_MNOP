@@ -12,6 +12,7 @@ import { fromEnglish } from '../lib/dictionaries'
 import { buildSearchIndex, matchesQuery } from '../lib/productSearch'
 import { ProductPrice } from '../commerce/ui'
 import { useCommerce } from '../commerce/CommerceProvider'
+import { assetUrl } from '../lib/assetUrl'
 
 const NAVY = 'var(--nb-navy)'
 const BLUE = 'var(--nb-primary)'
@@ -258,12 +259,12 @@ function ProductCard({ product, view }: { product: Product; view: 'grid' | 'list
       <div className="flex gap-3 p-3 transition-colors" style={{ background: hov ? 'var(--nb-surface)' : '#fff', borderBottom: '1px solid var(--nb-border)' }}
         onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}>
         <Link to={`/products/${product.id}`} className="rounded-md shrink-0 overflow-hidden" style={{ width: 80, height: 68, minWidth: 80, background: 'var(--nb-bg)' }}>
-          <img src={product.img || '/product-placeholder.svg'} alt={product.name} className="w-full h-full object-contain"
-            onError={e => { (e.currentTarget as HTMLImageElement).src = '/product-placeholder.svg' }} />
+          <img src={assetUrl(product.img || '/product-placeholder.svg')} alt={product.name} className="w-full h-full object-contain"
+            onError={e => { (e.currentTarget as HTMLImageElement).src = assetUrl('/product-placeholder.svg') }} />
         </Link>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
-            {brandRecord?.logo && <img src={brandRecord.logo} alt="" className="w-auto object-contain" style={{ maxHeight: 14, maxWidth: 48 }} />}
+            {brandRecord?.logo && <img src={assetUrl(brandRecord.logo)} alt="" className="w-auto object-contain" style={{ maxHeight: 14, maxWidth: 48 }} />}
             <span className="font-ui text-[10px] font-700 tracking-[0.12em] uppercase truncate" style={{ color: BLUE }}>{brandName}</span>
             <span className="font-ui text-[10px]" style={{ color: '#cbd5e1' }}>·</span>
             <span className="font-ui text-[10px] truncate" style={{ color: '#94a3b8' }}>SKU: {product.sku}</span>
@@ -305,8 +306,8 @@ function ProductCard({ product, view }: { product: Product; view: 'grid' | 'list
       onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}>
       <div className="relative overflow-hidden" style={{ height: 110, background: 'var(--nb-bg)' }}>
         <Link to={`/products/${product.id}`} className="block w-full h-full">
-          <img src={product.img || '/product-placeholder.svg'} alt={product.name} className="w-full h-full object-contain"
-            onError={e => { (e.currentTarget as HTMLImageElement).src = '/product-placeholder.svg' }} />
+          <img src={assetUrl(product.img || '/product-placeholder.svg')} alt={product.name} className="w-full h-full object-contain"
+            onError={e => { (e.currentTarget as HTMLImageElement).src = assetUrl('/product-placeholder.svg') }} />
         </Link>
         <button onClick={() => toggleWishlist(product.id)}
           className="rounded-md absolute top-2 right-2 w-6 h-6 flex items-center justify-center bg-white/90 hover:bg-white"
@@ -323,7 +324,7 @@ function ProductCard({ product, view }: { product: Product; view: 'grid' | 'list
       <div className="p-2.5 flex flex-col flex-1">
         <div className="flex items-center justify-between mb-1">
           <span className="flex items-center gap-1.5 min-w-0">
-            {brandRecord?.logo && <img src={brandRecord.logo} alt="" className="w-auto object-contain shrink-0" style={{ maxHeight: 13, maxWidth: 42 }} />}
+            {brandRecord?.logo && <img src={assetUrl(brandRecord.logo)} alt="" className="w-auto object-contain shrink-0" style={{ maxHeight: 13, maxWidth: 42 }} />}
             <span className="font-ui text-[9px] font-700 tracking-[0.10em] uppercase truncate mr-1" style={{ color: BLUE }}>{brandName}</span>
           </span>
           <StockBadge stock={product.stock} size="sm" />

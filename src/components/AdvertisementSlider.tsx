@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { Advertisement } from '../content'
+import { assetUrl } from '../lib/assetUrl'
 
 const AUTO_MS = 5500
 const RESUME_MS = 4000
@@ -102,7 +103,7 @@ export default function AdvertisementSlider({ ads, prevLabel, nextLabel, dotLabe
     if (!ads[0]) return
     const img = new Image()
     img.onload = () => { if (!cancelled && img.naturalWidth) setRatio(img.naturalWidth / img.naturalHeight) }
-    img.src = ads[0].image
+    img.src = assetUrl(ads[0].image)
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adKey])
@@ -196,7 +197,7 @@ export default function AdvertisementSlider({ ads, prevLabel, nextLabel, dotLabe
       >
         <div ref={trackRef} className="advertisement-track" style={{ transform: `translate3d(${-posRef.current * 100}%, 0, 0)` }}>
           {slides.map((ad, index) => {
-            const content = <img src={ad.image} alt="" draggable={false} className="advertisement-slide__art" />
+            const content = <img src={assetUrl(ad.image)} alt="" draggable={false} className="advertisement-slide__art" />
             const clone = multi && (index === 0 || index === n + 1)
             const key = `${ad.id}-${index}`
             if (!ad.destinationUrl) return <div key={key} aria-hidden={clone || undefined} className="advertisement-slide">{content}</div>

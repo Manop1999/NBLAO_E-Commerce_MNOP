@@ -1,6 +1,7 @@
 import { ChangeEvent, FormEvent, useState } from 'react'
 import { LeadershipItem, LeadershipSection } from '../../content'
 import { useStore } from '../../store'
+import { assetUrl } from '../../lib/assetUrl'
 
 const NAVY = 'var(--nb-navy)'
 const BLUE = 'var(--nb-primary)'
@@ -67,7 +68,7 @@ export default function LeadershipManagement() {
         {[...leadership].sort((a, b) => a.displayOrder - b.displayOrder).map(item => (
           <div key={item.id} className="p-4 flex items-center gap-4">
             <div className="w-16 h-14 bg-slate-100 shrink-0">
-              {item.image && <img src={item.image} alt="" className="w-full h-full object-cover" />}
+              {item.image && <img src={assetUrl(item.image)} alt="" className="w-full h-full object-cover" />}
             </div>
             <div className="flex-1 min-w-0">
               <div className="font-ui text-[10px] uppercase tracking-wide text-blue-600">{sectionLabels[item.section]} · Order {item.displayOrder}</div>
@@ -116,7 +117,7 @@ export default function LeadershipManagement() {
                 <input type="checkbox" checked={editing.active} onChange={event => setField('active', event.target.checked)} /> Active
               </label>
             </div>
-            {editing.image && <img src={editing.image} alt="" className="w-32 h-24 object-cover mt-4" />}
+            {editing.image && <img src={assetUrl(editing.image)} alt="" className="w-32 h-24 object-cover mt-4" />}
             <div className="flex justify-end gap-2 mt-5">
               <button type="button" onClick={() => setEditing(null)} className="rounded-md px-4 py-2 border border-slate-300 font-ui text-[12px]">Cancel</button>
               <button className="rounded-md px-5 py-2 text-white font-ui text-[12px] font-600" style={{ background: BLUE }}>Save</button>

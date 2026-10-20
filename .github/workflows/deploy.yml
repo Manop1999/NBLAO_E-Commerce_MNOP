@@ -30,8 +30,8 @@ jobs:
         run: |
           git lfs pull
           git lfs ls-files
-          if grep -R -l "^version https://git-lfs.github.com/spec/v1" public/site-images; then
-            echo "ERROR: Git LFS pointer files remain in public/site-images"
+          if grep -R -l "^version https://git-lfs.github.com/spec/v1" public; then
+            echo "ERROR: Git LFS pointer files remain in public/"
             exit 1
           fi
 
@@ -51,6 +51,18 @@ jobs:
 
       - name: Build application
         run: pnpm build
+
+      - name: Verify built images are not LFS pointers
+        shell: bash
+        run: |
+          if grep -R -l "^version https://git-lfs.github.com/spec/v1" dist; then
+            echo "ERROR: Git LFS pointer files found in dist/"
+            exit 1
+          fi
+          if ! cmp -s dist/index.html dist/404.html; then
+            echo "ERROR: dist/404.html SPA fallback is missing or differs from dist/index.html"
+            exit 1
+          fi
 
       - name: Setup GitHub Pages
         uses: actions/configure-pages@v5
