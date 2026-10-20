@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { assetUrl } from '../assetUrl'
+import { assetUrl, PUBLIC_ENTRIES } from '../assetUrl'
 
 const BASE = '/NBLAO_E-Commerce_MNOP/'
 
@@ -31,6 +31,38 @@ describe('assetUrl', () => {
   it('returns an empty string for missing values', () => {
     expect(assetUrl('', BASE)).toBe('')
     expect(assetUrl(undefined, BASE)).toBe('')
+  })
+
+  // Values written to the shared manop1999.github.io localStorage by the nblao-ecommerce-preview deployment.
+  // Before the fix these resolved to /NBLAO_E-Commerce_MNOP/nblao-ecommerce-preview/... and returned 404.
+  it('resolves paths saved by another deployment on the same origin to our own public assets', () => {
+    expect(assetUrl('/nblao-ecommerce-preview/products/product-01.jpg', BASE)).toBe('/NBLAO_E-Commerce_MNOP/products/product-01.jpg')
+    expect(assetUrl('/nblao-ecommerce-preview/brands/siemens.svg', BASE)).toBe('/NBLAO_E-Commerce_MNOP/brands/siemens.svg')
+    expect(assetUrl('/nblao-ecommerce-preview/site-images/345e73efccf1.jpg', BASE)).toBe('/NBLAO_E-Commerce_MNOP/site-images/345e73efccf1.jpg')
+    expect(assetUrl('/nblao-ecommerce-preview/advertisements/test001.png', BASE)).toBe('/NBLAO_E-Commerce_MNOP/advertisements/test001.png')
+    expect(assetUrl('/nblao-ecommerce-preview/nb-lao-logo.png', BASE)).toBe('/NBLAO_E-Commerce_MNOP/nb-lao-logo.png')
+    expect(assetUrl('/nblao-ecommerce-preview/product-placeholder.svg', BASE)).toBe('/NBLAO_E-Commerce_MNOP/product-placeholder.svg')
+    expect(assetUrl('/nblao-ecommerce-preview/products/product-01.jpg', '/')).toBe('/products/product-01.jpg')
+  })
+
+  it('leaves our own root-relative paths and unrelated nested paths alone', () => {
+    expect(assetUrl('/products/product-01.jpg', BASE)).toBe('/NBLAO_E-Commerce_MNOP/products/product-01.jpg')
+    expect(assetUrl('/site-images/c323e3f37dfd.jpg', BASE)).toBe('/NBLAO_E-Commerce_MNOP/site-images/c323e3f37dfd.jpg')
+    expect(assetUrl('/NBLAO_E-Commerce_MNOP/brands/abb.svg', BASE)).toBe('/NBLAO_E-Commerce_MNOP/brands/abb.svg')
+    // Only confirmed foreign deployment bases are stripped, never an arbitrary leading folder.
+    expect(assetUrl('/uploads/products/x.jpg', BASE)).toBe('/NBLAO_E-Commerce_MNOP/uploads/products/x.jpg')
+    expect(assetUrl('/NBLAO-E-Commerce/brands/abb.svg', BASE)).toBe('/NBLAO_E-Commerce_MNOP/NBLAO-E-Commerce/brands/abb.svg')
+    expect(assetUrl('/nblao-ecommerce-preview-old/products/x.jpg', BASE)).toBe('/NBLAO_E-Commerce_MNOP/nblao-ecommerce-preview-old/products/x.jpg')
+    expect(assetUrl('/nblao-ecommerce-preview/uploads/x.jpg', BASE)).toBe('/NBLAO_E-Commerce_MNOP/nblao-ecommerce-preview/uploads/x.jpg')
+    expect(assetUrl('/some/other/file.jpg', BASE)).toBe('/NBLAO_E-Commerce_MNOP/some/other/file.jpg')
+    expect(assetUrl('https://manop1999.github.io/nblao-ecommerce-preview/products/product-01.jpg', BASE)).toBe(
+      'https://manop1999.github.io/nblao-ecommerce-preview/products/product-01.jpg',
+    )
+  })
+
+  it('keeps PUBLIC_ENTRIES in sync with the public/ folder', () => {
+    const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
+    expect([...PUBLIC_ENTRIES].sort()).toEqual(readdirSync(join(root, 'public')).sort())
   })
 })
 
