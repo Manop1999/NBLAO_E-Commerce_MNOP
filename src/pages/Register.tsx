@@ -118,7 +118,7 @@ export default function Register() {
           <div className="rounded-lg bg-white p-8" style={{ border: '1px solid var(--nb-border)' }}>
             {/* Prototype notice */}
             <div className="rounded-md mb-5 px-4 py-3 font-ui text-[11px] leading-relaxed" style={{ background: 'var(--nb-bg)', border: '1px solid var(--nb-border)', color: 'var(--nb-text-secondary)' }}>
-              Prototype: new accounts are not saved permanently and are lost when the page reloads.
+              Demo registration only: accounts are not stored on the NB LAO server, and demo account data is not kept permanently.
             </div>
             {error && (
               <div className="rounded-md mb-4 px-4 py-3 font-ui text-[12px]" style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c' }}>

@@ -62,3 +62,6 @@ jobs:
       - name: Verify SPA fallback (dist/404.html must equal dist/index.html, as in deploy.yml)
         shell: bash
         run: cmp -s dist/index.html dist/404.html
+
+      - name: Verify document shell (title, description, og meta, no Figma placeholders)
+        run: node scripts/verify-build-output.mjs
