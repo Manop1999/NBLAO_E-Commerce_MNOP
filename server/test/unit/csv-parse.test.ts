@@ -183,7 +183,9 @@ describe('protective apostrophes (import side of the escaping policy)', () => {
     expect(stripProtectiveApostrophe("'@sales")).toBe('@sales')
     expect(stripProtectiveApostrophe("'\tindented")).toBe('\tindented')
     expect(stripProtectiveApostrophe("'\rx")).toBe('\rx')
+    expect(stripProtectiveApostrophe("'\nnote")).toBe('\nnote')
     expect(stripProtectiveApostrophe("''=1")).toBe("'=1")
+    expect(stripProtectiveApostrophe("''\n")).toBe("'\n")
   })
 
   it('leaves every other value unchanged', () => {
@@ -192,9 +194,21 @@ describe('protective apostrophes (import side of the escaping policy)', () => {
     }
   })
 
-  it('is applied by parseCsvBytes unless disabled', () => {
-    const bytes = utf8("value\n'=1+2\n")
-    expect(parseCsvBytes(bytes).records[1]).toEqual(['=1+2'])
-    expect(parseCsvBytes(bytes, { stripProtectiveApostrophes: false }).records[1]).toEqual(["'=1+2"])
+  const thirdParty = utf8("value\n'=1+2\n'-5 discount\n'+856 20 1234 5678\n'@team\n")
+
+  it('leaves apostrophes untouched by default (third-party files)', () => {
+    const expected = [['value'], ["'=1+2"], ["'-5 discount"], ["'+856 20 1234 5678"], ["'@team"]]
+    expect(parseCsvBytes(thirdParty).records).toEqual(expected)
+    expect(parseCsvBytes(thirdParty, { stripProtectiveApostrophes: false }).records).toEqual(expected)
+  })
+
+  it('strips the protective apostrophe only when enabled', () => {
+    expect(parseCsvBytes(thirdParty, { stripProtectiveApostrophes: true }).records).toEqual([
+      ['value'],
+      ['=1+2'],
+      ['-5 discount'],
+      ['+856 20 1234 5678'],
+      ['@team'],
+    ])
   })
 })

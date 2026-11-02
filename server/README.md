@@ -15,7 +15,7 @@ A1 (the dependency-free skeleton) is complete. Nothing below is called by an end
 | `test/unit/assertLocalDatabase.test.ts` | Unit tests for the guard. |
 | `src/auth/permissions.ts` | Draft permission codes and a deny-by-default `can()` helper (A1-c). No role mapping (decision D12) and no users. |
 | `test/unit/permissions.test.ts` | Unit tests for the permission helper. |
-| `src/csv/parse.ts` | RFC 4180-style CSV reader: strict UTF-8, removes leading BOMs, rejects NUL characters, detects `;`-separated files (header and rows with matching semicolons outside quotes), protective-apostrophe handling (A1-d). |
+| `src/csv/parse.ts` | RFC 4180-style CSV reader: strict UTF-8, removes leading BOMs, rejects NUL characters, detects `;`-separated files (header and rows with matching semicolons outside quotes), opt-in protective-apostrophe stripping (A1-d). |
 | `test/unit/csv-parse.test.ts` | Unit tests for the reader. |
 | `src/csv/write.ts` | CSV writer with formula-injection escaping, quoting, UTF-8 BOM and CRLF (A1-d). |
 | `test/unit/csv-write.test.ts` | Unit tests for the writer, including import/export round trips. |
@@ -38,14 +38,17 @@ node_modules/.bin/vitest run --root server
 
 ## CSV escaping policy
 
-- **Import (`parse.ts`):** cell values are never evaluated; text is kept exactly as written. Exactly one
-  leading apostrophe is removed when the value is one or more apostrophes followed by `=`, `+`, `-`, `@`, TAB
-  or CR, because that is the protective prefix the exporter adds.
-- **Export (`write.ts`):** text that starts with `=`, `+`, `-`, `@`, TAB or CR (optionally after leading
+- **Import (`parse.ts`):** cell values are never evaluated; text is kept exactly as written. Apostrophe
+  stripping is **opt-in** (`stripProtectiveApostrophes: true`, default off) and should be enabled only for files
+  known to come from our own exporter. When enabled, exactly one leading apostrophe is removed when the value
+  is one or more apostrophes followed by `=`, `+`, `-`, `@`, TAB, CR or LF, because that is the protective
+  prefix the exporter adds. By default, third-party values are never altered.
+- **Export (`write.ts`):** text that starts with `=`, `+`, `-`, `@`, TAB, CR or LF (optionally after leading
   apostrophes) gets one leading apostrophe so spreadsheets show it as text instead of running it as a formula.
   Numbers and booleans are written as plain values (a negative number stays `-5`). Fields containing a comma,
-  double quote, CR or LF are quoted and quotes are doubled. Files use CRLF and, by default, a UTF-8 BOM.
-- Together these make exported values round-trip unchanged through import.
+  double quote, CR or LF are quoted and quotes are doubled. Strings containing a NUL character are refused
+  (`RangeError`). Files use CRLF and, by default, a UTF-8 BOM.
+- With stripping enabled for our own exports, exported values round-trip unchanged through import.
 - Not yet used by any module: per-column validation (IDs, numbers, enums), limits (decision X5), dry-run,
   preview and import jobs come in later, separately approved phases.
 

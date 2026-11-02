@@ -3,9 +3,11 @@
  *
  * Escaping policy (import side):
  * - Cell values are never evaluated; text is kept exactly as written.
- * - Exactly one leading apostrophe is removed when the value is one or more apostrophes followed by
- *   = + - @ TAB or CR. That apostrophe is the protective prefix our own exporter adds (see write.ts), so exported
- *   values round-trip unchanged, including values that themselves start with an apostrophe.
+ * - Apostrophe stripping is OPT-IN (`stripProtectiveApostrophes: true`). When enabled, exactly one leading
+ *   apostrophe is removed when the value is one or more apostrophes followed by = + - @ TAB, CR or LF. That
+ *   apostrophe is the protective prefix our own exporter adds (see write.ts), so our exported values round-trip
+ *   unchanged, including values that themselves start with an apostrophe. Enable it only for files known to
+ *   come from our exporter; by default third-party values are never altered.
  *
  * Input rules:
  * - Must be valid UTF-8 ("CSV UTF-8" in Excel); leading BOMs (including a duplicated one) are removed.
@@ -44,7 +46,11 @@ export interface CsvParseOptions {
   maxBytes?: number
   /** Reject files with more data records than this (header excluded). No default (X5). */
   maxRows?: number
-  /** Remove one protective apostrophe placed before = + - @ TAB CR. Defaults to true. */
+  /**
+   * Remove one protective apostrophe placed before a formula trigger. Defaults to false. Enable it only for
+   * files known to be produced by our own exporter (for example our templates); third-party files are then
+   * never altered.
+   */
   stripProtectiveApostrophes?: boolean
 }
 
@@ -59,7 +65,7 @@ const NUL = String.fromCharCode(0)
 const SEPARATOR_SAMPLE_RECORDS = 5
 
 /** Characters that make spreadsheet software treat a cell as a formula. Shared with write.ts. */
-export const FORMULA_TRIGGERS: ReadonlySet<string> = new Set(['=', '+', '-', '@', '\t', '\r'])
+export const FORMULA_TRIGGERS: ReadonlySet<string> = new Set(['=', '+', '-', '@', '\t', '\r', '\n'])
 
 /** True when `text` is zero or more apostrophes followed by a formula trigger (e.g. "=1", "'=1", "''@a"). */
 export function startsWithGuardedFormula(text: string): boolean {
@@ -236,7 +242,7 @@ export function parseCsvBytes(bytes: Uint8Array, options: CsvParseOptions = {}):
   if (options.maxRows !== undefined && records.length - 1 > options.maxRows) {
     throw new CsvError('too_many_rows', `The file has more than the ${options.maxRows}-row limit.`)
   }
-  if (options.stripProtectiveApostrophes !== false) {
+  if (options.stripProtectiveApostrophes === true) {
     records = records.map(r => r.map(stripProtectiveApostrophe))
   }
   return { records, hadBom }

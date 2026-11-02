@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseCsvBytes } from '../../src/csv/parse'
+import { FORMULA_TRIGGERS, parseCsvBytes } from '../../src/csv/parse'
 import { escapeFormula, toCsvDocument, toCsvField, toCsvRow, type CsvValue } from '../../src/csv/write'
 
 describe('escapeFormula (export side of the escaping policy)', () => {
@@ -10,6 +10,7 @@ describe('escapeFormula (export side of the escaping policy)', () => {
     expect(escapeFormula('@sales')).toBe("'@sales")
     expect(escapeFormula('\tindented')).toBe("'\tindented")
     expect(escapeFormula('\rx')).toBe("'\rx")
+    expect(escapeFormula('\nline')).toBe("'\nline")
   })
 
   it('also protects text that already starts with apostrophes before a trigger', () => {
@@ -35,6 +36,7 @@ describe('toCsvField / toCsvRow', () => {
   it('escapes formulas before quoting', () => {
     expect(toCsvField('=1,2')).toBe(`"'=1,2"`)
     expect(toCsvField('\rcarriage')).toBe(`"'\rcarriage"`)
+    expect(toCsvField('\n=1')).toBe(`"'\n=1"`)
   })
 
   it('writes numbers and booleans as plain values and null/undefined as empty', () => {
@@ -50,6 +52,12 @@ describe('toCsvField / toCsvRow', () => {
   it('refuses non-finite numbers', () => {
     expect(() => toCsvField(Number.NaN)).toThrow(RangeError)
     expect(() => toCsvField(Number.POSITIVE_INFINITY)).toThrow(RangeError)
+  })
+
+  it('refuses NUL characters', () => {
+    const nul = String.fromCharCode(0)
+    expect(() => toCsvField(`a${nul}b`)).toThrow(RangeError)
+    expect(() => toCsvDocument([['v'], [`a${nul}b`]])).toThrow(RangeError)
   })
 
   it('joins fields with commas', () => {
@@ -77,6 +85,8 @@ describe('round trip: toCsvDocument -> parseCsvBytes', () => {
     '-40 °C rated',
     '@sales',
     '\tindented',
+    '\n=1',
+    '\nstarts with newline',
     "'=already protected",
     "'hello",
     "it's",
@@ -90,10 +100,10 @@ describe('round trip: toCsvDocument -> parseCsvBytes', () => {
     ' padded ',
   ]
 
-  it('returns exactly the original text values', () => {
+  it('returns exactly the original text values when stripping is enabled for our own export', () => {
     const rows: CsvValue[][] = [header, ...values.map((value, i) => [`R${i}`, value])]
     const bytes = new TextEncoder().encode(toCsvDocument(rows))
-    const parsed = parseCsvBytes(bytes)
+    const parsed = parseCsvBytes(bytes, { stripProtectiveApostrophes: true })
     expect(parsed.hadBom).toBe(true)
     expect(parsed.records).toEqual([header, ...values.map((value, i) => [`R${i}`, value])])
   })
@@ -106,11 +116,19 @@ describe('round trip: toCsvDocument -> parseCsvBytes', () => {
     ])
   })
 
-  it('never leaves an unprotected formula in the written file', () => {
-    const doc = toCsvDocument(values.map(v => [v]), { bom: false })
-    for (const line of doc.split('\r\n').filter(Boolean)) {
-      const cell = line.startsWith('"') ? line.slice(1) : line
-      expect(/^[=+\-@\t]/.test(cell)).toBe(false)
+  it('keeps protective apostrophes when stripping is not enabled', () => {
+    const bytes = new TextEncoder().encode(toCsvDocument([['=1+2'], ['\n=1'], ['plain']], { bom: false }))
+    expect(parseCsvBytes(bytes).records).toEqual([["'=1+2"], ["'\n=1"], ['plain']])
+  })
+
+  it('never leaves an unprotected formula in any cell', () => {
+    const triggerCases = ["=cmd|' /c calc'!A0", '+1', '-1', '@SUM(A1)', '\t=1', '\r=1', '\n=1', 'line one\n=line two']
+    const doc = toCsvDocument([...values, ...triggerCases].map(v => [v]), { bom: false })
+    // Parse the written file (without stripping) so quoted multi-line cells are seen exactly as a spreadsheet sees them.
+    const cells = parseCsvBytes(new TextEncoder().encode(doc), { stripProtectiveApostrophes: false }).records.flat()
+    expect(cells).toHaveLength(values.length + triggerCases.length)
+    for (const cell of cells) {
+      expect(cell.length === 0 || !FORMULA_TRIGGERS.has(cell[0] as string)).toBe(true)
     }
   })
 })

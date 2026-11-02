@@ -3,9 +3,11 @@
  * endpoint or job uses it yet.
  *
  * Escaping policy (export side), following the OWASP CSV-injection guidance:
- * - Text that starts with = + - @ TAB or CR (optionally after leading apostrophes) gets one more leading
+ * - Text that starts with = + - @ TAB, CR or LF (optionally after leading apostrophes) gets one more leading
  *   apostrophe, so Excel/LibreOffice show it as text instead of running it as a formula. parse.ts removes
- *   exactly that apostrophe again on import, so values round-trip unchanged.
+ *   exactly that apostrophe again on import when `stripProtectiveApostrophes: true` is passed (opt-in, for our
+ *   own exports), so values round-trip unchanged.
+ * - Strings containing a NUL character are refused with a RangeError (our reader rejects NUL).
  * - Numbers and booleans are written as plain values without the prefix (a negative number stays -5).
  * - Fields containing a comma, a double quote, CR or LF are wrapped in double quotes; quotes are doubled.
  * - null/undefined become an empty field.
@@ -14,6 +16,8 @@
 import { startsWithGuardedFormula } from './parse'
 
 export type CsvValue = string | number | boolean | null | undefined
+
+const NUL = String.fromCharCode(0)
 
 /** Prefix a protective apostrophe when text would be (or, after import stripping, would become) a formula. */
 export function escapeFormula(text: string): string {
@@ -31,6 +35,7 @@ export function toCsvField(value: CsvValue): string {
     return String(value)
   }
   if (typeof value === 'boolean') return value ? 'true' : 'false'
+  if (value.includes(NUL)) throw new RangeError('Cannot write a NUL character to CSV')
   return quoteIfNeeded(escapeFormula(value))
 }
 
