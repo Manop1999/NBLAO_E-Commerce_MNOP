@@ -10,6 +10,7 @@ import { getBrandName } from '../brands'
 import LogoCarousel from '../components/LogoCarousel'
 import AdvertisementSlider from '../components/AdvertisementSlider'
 import { assetUrl } from '../lib/assetUrl'
+import { HOME_STATS } from '../content'
 
 const NAVY = 'var(--nb-navy)'
 const BLUE = 'var(--nb-primary)'
@@ -31,12 +32,6 @@ const ChevronIcon = ({ direction }: { direction: 'left' | 'right' }) => (
     <polyline points={direction === 'left' ? '15 18 9 12 15 6' : '9 18 15 12 9 6'} />
   </svg>
 )
-const STATS = [
-  { value: '12+', label: 'Years in Business' },
-  { value: '500+', label: 'Products Supplied' },
-  { value: '200+', label: 'Clients Served' },
-  { value: '15+', label: 'Countries Sourced' },
-]
 
 const CAT_IMAGES: Record<string, string> = {
   'Electrical Equipment': '/site-images/c323e3f37dfd.jpg',
@@ -115,14 +110,16 @@ function Hero() {
               {t.common.request_quote}
             </Link>
           </div>
-          <div className="flex flex-wrap gap-x-8 gap-y-4 pt-6" style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-            {STATS.map((s) => (
-              <div key={s.label}>
-                <div className="font-display font-800 leading-none" style={{ fontSize: 'clamp(22px, 2.2vw, 28px)', color: GOLD }}>{s.value}</div>
-                <div className="font-ui text-[10px] mt-1 tracking-wide" style={{ color: 'rgba(255,255,255,0.45)' }}>{s.label}</div>
-              </div>
-            ))}
-          </div>
+          {HOME_STATS.verified && (
+            <div className="flex flex-wrap gap-x-8 gap-y-4 pt-6" style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+              {HOME_STATS.items.map((s) => (
+                <div key={s.label}>
+                  <div className="font-display font-800 leading-none" style={{ fontSize: 'clamp(22px, 2.2vw, 28px)', color: GOLD }}>{s.value}</div>
+                  <div className="font-ui text-[10px] mt-1 tracking-wide" style={{ color: 'rgba(255,255,255,0.45)' }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </section>

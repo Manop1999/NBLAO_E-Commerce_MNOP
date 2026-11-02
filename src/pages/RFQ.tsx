@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useStore } from '../store'
 import { useT } from '../i18n'
 import { assetUrl } from '../lib/assetUrl'
+import { buildRfqMailto, buildRfqWhatsAppUrl, type RfqHandoffInput } from '../lib/rfqHandoff'
 
 const NAVY = 'var(--nb-navy)'
 const BLUE = 'var(--nb-primary)'
@@ -33,7 +34,7 @@ const FileIcon = () => (
   </svg>
 )
 
-const STEPS = ['Products', 'Company Info', 'Requirements', 'Review', 'Submitted']
+const STEPS = ['Products', 'Company Info', 'Requirements', 'Review', 'Send']
 
 function StepBar({ current }: { current: number }) {
   return (
@@ -69,9 +70,8 @@ function FormGroup({ label, children, required }: { label: string; children: Rea
 
 export default function RFQ() {
   const t = useT()
-  const { rfqItems, addToRFQ, removeFromRFQ, clearRFQ, products } = useStore()
+  const { rfqItems, addToRFQ, removeFromRFQ, clearRFQ, products, customerService } = useStore()
   const [step, setStep] = useState(0)
-  const [submitting, setSubmitting] = useState(false)
   const [qtyMap, setQtyMap] = useState<Record<string, number>>({})
   const [addProductId, setAddProductId] = useState('')
 
@@ -95,16 +95,20 @@ export default function RFQ() {
     }
   }
 
-  const handleSubmit = () => {
-    setSubmitting(true)
-    setTimeout(() => {
-      setSubmitting(false)
-      clearRFQ()
-      setStep(4)
-    }, 1800)
-  }
+  // The prototype cannot transmit an RFQ, so "submit" prepares it for the customer to send by email or WhatsApp.
+  // The RFQ list is kept until the customer clears it, so nothing is lost if they leave before sending.
+  const handleSubmit = () => setStep(4)
 
-  // Submitted
+  const handoff: RfqHandoffInput = {
+    reference: rfqNum,
+    company,
+    requirements: req,
+    items: rfqItems.map(item => ({ name: item.name, sku: item.sku, variantLabel: item.variantLabel, qty: getQty(item) })),
+  }
+  const mailtoUrl = customerService.email.trim() ? buildRfqMailto(customerService.email, handoff) : ''
+  const whatsAppUrl = buildRfqWhatsAppUrl(customerService.whatsapp, handoff)
+
+  // Prepared, not yet sent
   if (step === 4) {
     return (
       <div style={{ background: 'var(--nb-bg)', minHeight: '70vh' }}>
@@ -112,12 +116,12 @@ export default function RFQ() {
           <div className="mb-6" style={{ color: BLUE }}><CheckCircleIcon /></div>
           <div className="flex items-center justify-center gap-3 mb-3">
             <div className="w-6 h-px" style={{ background: GOLD }} />
-            <span className="font-ui text-[10px] tracking-[0.22em] uppercase font-600" style={{ color: GOLD }}>{t.rfq.success}</span>
+            <span className="font-ui text-[10px] tracking-[0.22em] uppercase font-600" style={{ color: GOLD }}>RFQ Ready to Send</span>
             <div className="w-6 h-px" style={{ background: GOLD }} />
           </div>
-          <h1 className="font-display font-800 text-[32px] mb-4" style={{ color: NAVY }}>{t.rfq.success}</h1>
+          <h1 className="font-display font-800 text-[32px] mb-4" style={{ color: NAVY }}>Send Your RFQ to NB LAO</h1>
           <p className="font-ui text-[14px] leading-relaxed mb-2" style={{ color: 'var(--nb-text-secondary)' }}>
-            {t.rfq.success_desc}
+            This demo site does not send requests automatically. Send your RFQ by email or WhatsApp so our team receives it.
           </p>
           <div className="rounded-lg bg-white p-5 my-8" style={{ border: '1px solid var(--nb-border)' }}>
             <div className="flex items-center justify-between py-2">
@@ -129,13 +133,18 @@ export default function RFQ() {
               <span className="font-ui text-[13px]" style={{ color: NAVY }}>{company.name || 'N/A'}</span>
             </div>
             <div className="flex items-center justify-between py-2" style={{ borderTop: '1px solid var(--nb-bg)' }}>
-              <span className="font-ui text-[13px]" style={{ color: 'var(--nb-text-secondary)' }}>Expected Response</span>
-              <span className="font-ui text-[13px]" style={{ color: NAVY }}>Within 24 hours</span>
+              <span className="font-ui text-[13px]" style={{ color: 'var(--nb-text-secondary)' }}>Products</span>
+              <span className="font-ui text-[13px]" style={{ color: NAVY }}>{rfqItems.length}</span>
             </div>
           </div>
           <div className="flex flex-wrap justify-center gap-3">
-            <Link to="/account?tab=quotations" className="rounded-md font-ui text-[13px] font-600 px-6 py-3 text-white no-underline" style={{ background: BLUE }}>View My Quotations</Link>
-            <Link to="/products" className="rounded-md font-ui text-[13px] font-600 px-6 py-3 no-underline" style={{ border: `1px solid ${NAVY}`, color: NAVY }}>Continue Shopping</Link>
+            {mailtoUrl && <a href={mailtoUrl} className="rounded-md font-ui text-[13px] font-600 px-6 py-3 text-white no-underline" style={{ background: BLUE }}>Send by Email</a>}
+            {whatsAppUrl && <a href={whatsAppUrl} target="_blank" rel="noopener noreferrer" className="rounded-md font-ui text-[13px] font-600 px-6 py-3 text-white no-underline" style={{ background: '#25D366' }}>Send via WhatsApp</a>}
+            {!mailtoUrl && !whatsAppUrl && <Link to="/contact" className="rounded-md font-ui text-[13px] font-600 px-6 py-3 text-white no-underline" style={{ background: BLUE }}>Contact Us</Link>}
+          </div>
+          <div className="flex flex-wrap justify-center gap-3 mt-3">
+            <button onClick={() => setStep(3)} className="rounded-md font-ui text-[13px] font-600 px-6 py-3" style={{ border: `1px solid ${NAVY}`, color: NAVY }}>← Back</button>
+            <Link to="/products" onClick={clearRFQ} className="rounded-md font-ui text-[13px] font-600 px-6 py-3 no-underline" style={{ border: `1px solid ${NAVY}`, color: NAVY }}>Sent — Clear RFQ List</Link>
           </div>
         </div>
       </div>
@@ -334,10 +343,10 @@ export default function RFQ() {
 
               <div className="flex gap-3 justify-between">
                 <button onClick={() => setStep(2)} className="rounded-md font-ui text-[13px] font-600 px-6 py-3" style={{ border: `1px solid ${NAVY}`, color: NAVY }}>← Back</button>
-                <button onClick={handleSubmit} disabled={submitting}
-                  className="rounded-md font-ui text-[13px] font-600 px-10 py-3 text-white disabled:opacity-60 transition-all"
-                  style={{ background: submitting ? 'var(--nb-text-secondary)' : BLUE }}>
-                  {submitting ? '...' : t.rfq.submit}
+                <button onClick={handleSubmit}
+                  className="rounded-md font-ui text-[13px] font-600 px-10 py-3 text-white transition-all"
+                  style={{ background: BLUE }}>
+                  {t.rfq.submit}
                 </button>
               </div>
             </div>

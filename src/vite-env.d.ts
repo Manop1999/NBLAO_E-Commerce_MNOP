@@ -1,1 +1,10 @@
 /// <reference types="vite/client" />
+
+interface ImportMetaEnv {
+  /** Set to "false" to hide the site-wide prototype notice. Any other value (or unset) shows it. */
+  readonly VITE_DEMO_MODE?: string
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv
+}
