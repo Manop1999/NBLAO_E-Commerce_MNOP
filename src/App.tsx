@@ -11,6 +11,9 @@ import { CommerceProvider } from "./commerce/CommerceProvider"
 import { ToastProvider } from "./components/Toast"
 import { PageLayout } from "./components/Layout"
 import GlobalLanguage from "./components/GlobalLanguage"
+import DemoBanner from "./components/DemoBanner"
+import { useEffect } from "react"
+import { pageTitleFor } from "./lib/pageTitle"
 
 // Pages
 import Home from "./pages/Home"
@@ -55,6 +58,14 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+function RouteTitle() {
+  const { pathname } = useLocation()
+  useEffect(() => {
+    document.title = pageTitleFor(pathname)
+  }, [pathname])
+  return null
+}
+
 export default function App() {
   return (
     <StoreProvider>
@@ -63,6 +74,8 @@ export default function App() {
         <ToastProvider>
           <BrowserRouter basename={import.meta.env.BASE_URL}>
             <GlobalLanguage />
+            <RouteTitle />
+            <DemoBanner />
             <Routes>
               {/* Auth pages — standalone layout (no main nav) */}
               <Route path="/login" element={<Login />} />

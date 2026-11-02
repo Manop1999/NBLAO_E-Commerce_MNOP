@@ -114,6 +114,20 @@ export function restoreMainCampaigns(saved: Advertisement[]): Advertisement[] {
   return [...campaigns, ...preserved, ...others]
 }
 
+/**
+ * Company figures for the homepage hero. They are placeholders until NB LAO confirms them; the hero shows
+ * them only when `verified` is true.
+ */
+export const HOME_STATS: { verified: boolean; items: { value: string; label: string }[] } = {
+  verified: false,
+  items: [
+    { value: '12+', label: 'Years in Business' },
+    { value: '500+', label: 'Products Supplied' },
+    { value: '200+', label: 'Clients Served' },
+    { value: '15+', label: 'Countries Sourced' },
+  ],
+}
+
 export const DEFAULT_CUSTOMER_SERVICE: CustomerServiceSettings = {
   addressEn: '123 Industrial Zone, Saysettha, Vientiane, Laos PDR',
   addressLo: '123 ເຂດອຸດສາຫະກຳ, ໄຊເສດຖາ, ວຽງຈັນ, ສປປ ລາວ',

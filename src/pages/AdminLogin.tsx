@@ -57,7 +57,7 @@ export default function AdminLogin() {
 
         <div className="rounded-lg p-8" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
           <div className="rounded-md mb-5 px-4 py-3 font-ui text-[11px] leading-relaxed" style={{ background: 'rgba(212,175,55,0.08)', border: '1px solid rgba(212,175,55,0.2)', color: 'rgba(212,175,55,0.8)' }}>
-            <strong>Demo:</strong> admin@nblao.la / admin123
+            Prototype admin: changes are stored only in this browser.
           </div>
 
           {error && (

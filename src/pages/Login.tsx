@@ -76,10 +76,9 @@ export default function Login() {
           </div>
 
           <div className="rounded-lg bg-white p-8" style={{ border: '1px solid var(--nb-border)' }}>
-            {/* Demo hint */}
+            {/* Prototype notice */}
             <div className="rounded-md mb-5 px-4 py-3 font-ui text-[11px] leading-relaxed" style={{ background: 'var(--nb-bg)', border: '1px solid var(--nb-border)', color: 'var(--nb-text-secondary)' }}>
-              <strong style={{ color: NAVY }}>Demo credentials:</strong>{' '}
-              john.doe@company.com / demo123
+              Prototype sign-in: accounts and data are stored only in this browser.
             </div>
 
             {error && (
