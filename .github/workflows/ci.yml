@@ -1,0 +1,64 @@
+# Pull-request validation for NB LAO E-Commerce.
+# Runs tests, type checks and a production build for every pull request to main.
+# It never deploys: no Pages permissions, no secrets, no uploads. Deployment stays in deploy.yml only.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          lfs: false
+
+      - name: Setup pnpm (pinned to .mise.toml)
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.3
+
+      - name: Setup Node.js 22 (matches .mise.toml and deploy.yml)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies (lockfile must not change)
+        run: pnpm install --frozen-lockfile
+
+      - name: Server unit tests
+        run: pnpm exec vitest run --root server
+
+      - name: Frontend unit tests
+        run: pnpm test
+
+      - name: Server TypeScript (strict)
+        shell: bash
+        run: >-
+          pnpm exec tsc --noEmit --strict --noUncheckedIndexedAccess --target ES2022 --lib ES2022
+          --module ESNext --moduleResolution bundler --types node --skipLibCheck
+          $(find server/src server/test -name '*.ts' | sort)
+
+      - name: Frontend TypeScript
+        run: pnpm exec tsc --noEmit -p tsconfig.json
+
+      - name: Production build (validation only, not uploaded)
+        run: pnpm build
+
+      - name: Verify SPA fallback (dist/404.html must equal dist/index.html, as in deploy.yml)
+        shell: bash
+        run: cmp -s dist/index.html dist/404.html
