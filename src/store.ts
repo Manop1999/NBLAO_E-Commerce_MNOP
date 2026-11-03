@@ -352,10 +352,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const updateQty = (id: number, qty: number, variantId?: string) => {
     if (qty < 1) return removeFromCart(id, variantId)
-    const safeQty = Number.isFinite(qty) ? Math.floor(qty) : 1
+    const apiQty = Number.isFinite(qty) ? Math.floor(qty) : 1
     setCart((p) =>
       p.map((c) => (sameLine(c, id, variantId)
-        ? { ...c, qty: CATALOG_SOURCE === "api" ? Math.max(1, Math.min(safeQty, 999_999)) : Math.min(safeQty, c.stock) }
+        ? { ...c, qty: CATALOG_SOURCE === "api" ? Math.max(1, Math.min(apiQty, 999_999)) : Math.min(qty, c.stock) }
         : c)),
     )
   }
