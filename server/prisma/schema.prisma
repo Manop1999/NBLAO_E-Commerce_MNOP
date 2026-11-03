@@ -1,0 +1,129 @@
+// Catalog-only schema (Phase 1B A6). Mirrors the frontend catalog types in src/data.ts (Product),
+// src/brands.ts (Brand) and src/lib/variants.ts (ProductOption, ProductVariant).
+// Money is stored as integer minor units (BigInt) plus an ISO 4217 currency code, like src/commerce/money.ts.
+// Stock/inventory, orders, RFQs and users are intentionally not modelled yet.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Brand {
+  // Stable text key, same as the frontend brand id (e.g. "brand-siemens").
+  id           String    @id
+  name         String
+  nameLo       String?   @map("name_lo")
+  logoUrl      String?   @map("logo_url")
+  websiteUrl   String?   @map("website_url")
+  description  String?
+  active       Boolean   @default(true)
+  displayOrder Int       @default(0) @map("display_order")
+  isDemo       Boolean   @default(false) @map("is_demo")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  products     Product[]
+
+  @@map("brands")
+}
+
+model Category {
+  id           String     @id @default(uuid()) @db.Uuid
+  // URL-safe unique key, e.g. "electrical-equipment" or "electrical-equipment/transformers".
+  slug         String     @unique
+  name         String
+  parentId     String?    @map("parent_id") @db.Uuid
+  parent       Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children     Category[] @relation("CategoryTree")
+  displayOrder Int        @default(0) @map("display_order")
+  isDemo       Boolean    @default(false) @map("is_demo")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+  products     Product[]
+
+  @@index([parentId])
+  @@map("categories")
+}
+
+model Product {
+  id               String           @id @default(uuid()) @db.Uuid
+  // Numeric id used by the current frontend (kept for later migration of stored carts/RFQs).
+  legacyId         Int?             @unique @map("legacy_id")
+  sku              String           @unique
+  name             String
+  model            String?
+  brandId          String?          @map("brand_id")
+  brand            Brand?           @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  categoryId       String           @map("category_id") @db.Uuid
+  category         Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  // Integer minor units of `currency` (e.g. USD cents). Non-negative (CHECK constraint in the migration).
+  priceMinor       BigInt           @map("price_minor")
+  currency         String           @db.Char(3)
+  priceUnit        String?          @map("price_unit")
+  minOrderQuantity Int?             @map("min_order_quantity")
+  leadTime         String?          @map("lead_time")
+  shortDescription String?          @map("short_description")
+  description      String?
+  // [{ label, value }] in display order.
+  specs            Json             @default("[]")
+  // [{ name, values: string[] }] in display order (src/lib/variants.ts ProductOption).
+  options          Json             @default("[]")
+  applications     String[]         @default([])
+  tags             String[]         @default([])
+  certifications   String[]         @default([])
+  featured         Boolean          @default(false)
+  active           Boolean          @default(true)
+  // Options/variants are demonstration defaults, not manufacturer-verified (frontend demoOptions).
+  demoOptions      Boolean          @default(false) @map("demo_options")
+  isDemo           Boolean          @default(false) @map("is_demo")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  variants         ProductVariant[]
+  images           ProductImage[]
+
+  @@index([brandId])
+  @@index([categoryId])
+  @@map("products")
+}
+
+model ProductVariant {
+  id           String         @id @default(uuid()) @db.Uuid
+  productId    String         @map("product_id") @db.Uuid
+  product      Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku          String         @unique
+  // { optionName: value } (src/lib/variants.ts ProductVariant.options).
+  optionValues Json           @map("option_values")
+  // Null means the variant inherits the product price. Same currency as the product.
+  priceMinor   BigInt?        @map("price_minor")
+  active       Boolean        @default(true)
+  visible      Boolean        @default(true)
+  purchasable  Boolean        @default(true)
+  isDemo       Boolean        @default(false) @map("is_demo")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+  images       ProductImage[]
+
+  @@index([productId])
+  @@map("product_variants")
+}
+
+model ProductImage {
+  id        String          @id @default(uuid()) @db.Uuid
+  productId String          @map("product_id") @db.Uuid
+  product   Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  // Null for product-level images; set for images that belong to one variant.
+  variantId String?         @map("variant_id") @db.Uuid
+  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  url       String
+  altText   String?         @map("alt_text")
+  position  Int             @default(0)
+  isDemo    Boolean         @default(false) @map("is_demo")
+  createdAt DateTime        @default(now()) @map("created_at")
+
+  @@index([productId, position])
+  @@index([variantId])
+  @@map("product_images")
+}
