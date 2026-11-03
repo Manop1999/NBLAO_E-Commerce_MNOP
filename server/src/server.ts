@@ -4,6 +4,7 @@
  * connect or listen.
  */
 import { buildApp } from './app.ts'
+import { createPrismaCatalogReader } from './catalog/reader.ts'
 import { ConfigError, loadConfig } from './config.ts'
 import { UnsafeDatabaseTargetError } from './db/assertLocalDatabase.ts'
 import { createDatabaseClient, pingDatabase } from './db/client.ts'
@@ -11,7 +12,11 @@ import { createDatabaseClient, pingDatabase } from './db/client.ts'
 async function main(): Promise<void> {
   const config = loadConfig(process.env)
   const { prisma, target } = createDatabaseClient(config)
-  const app = buildApp({ logLevel: config.logLevel, checkDatabase: () => pingDatabase(prisma) })
+  const app = buildApp({
+    logLevel: config.logLevel,
+    checkDatabase: () => pingDatabase(prisma),
+    catalog: createPrismaCatalogReader(prisma),
+  })
 
   const shutdown = async (signal: string) => {
     app.log.info({ signal }, 'shutting down')

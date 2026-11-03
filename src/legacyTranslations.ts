@@ -793,4 +793,22 @@ export const legacyLao: Record<string, string> = {
   'Every variant needs a SKU.': 'ທຸກຕົວເລືອກຕ້ອງມີ SKU.',
   'Price currency': 'ສະກຸນເງິນຂອງລາຄາ',
   'Base currency': 'ສະກຸນເງິນຫຼັກ',
+
+  // Catalog API mode (Phase 1D)
+  'Availability on request': 'ສອບຖາມສິນຄ້າພ້ອມຂາຍ',
+  'Quote only': 'ຂໍໃບສະເໜີລາຄາເທົ່ານັ້ນ',
+  'Request a Quote': 'ຂໍໃບສະເໜີລາຄາ',
+  'Online ordering is not available yet. Request a quote.': 'ຍັງບໍ່ສາມາດສັ່ງຊື້ອອນລາຍໄດ້. ກະລຸນາຂໍໃບສະເໜີລາຄາ.',
+  'Online ordering is not available yet. Convert your cart to a quote request instead.': 'ຍັງບໍ່ສາມາດສັ່ງຊື້ອອນລາຍໄດ້. ກະລຸນາປ່ຽນກະຕ່າເປັນຄຳຂໍໃບສະເໜີລາຄາແທນ.',
+  'Online ordering is not available yet': 'ຍັງບໍ່ສາມາດສັ່ງຊື້ອອນລາຍໄດ້',
+  'Product availability is confirmed by our sales team. Please send a quote request instead.': 'ທີມຂາຍຂອງເຮົາຈະຢືນຢັນສິນຄ້າພ້ອມຂາຍ. ກະລຸນາສົ່ງຄຳຂໍໃບສະເໜີລາຄາແທນ.',
+  'Loading products…': 'ກຳລັງໂຫຼດສິນຄ້າ…',
+  'Fetching the latest catalog.': 'ກຳລັງດຶງລາຍການສິນຄ້າລ່າສຸດ.',
+  'Products could not be loaded': 'ບໍ່ສາມາດໂຫຼດສິນຄ້າໄດ້',
+  'The catalog service is not available right now. Please try again in a moment.': 'ລະບົບລາຍການສິນຄ້າບໍ່ພ້ອມໃຊ້ງານໃນຕອນນີ້. ກະລຸນາລອງໃໝ່ອີກຄັ້ງ.',
+  'Try again': 'ລອງໃໝ່',
+  'No products available': 'ບໍ່ມີສິນຄ້າ',
+  'The catalog does not contain any published products yet.': 'ລາຍການສິນຄ້າຍັງບໍ່ມີສິນຄ້າທີ່ເຜີຍແຜ່.',
+  'Prototype Admin: demo sign-in and data stored only in this browser. Not production-secure.': 'ລະບົບຜູ້ດູແລແບບທົດລອງ: ການເຂົ້າສູ່ລະບົບແບບທົດລອງ ແລະ ຂໍ້ມູນຖືກເກັບໄວ້ໃນບຣາວເຊີນີ້ເທົ່ານັ້ນ. ຍັງບໍ່ປອດໄພສຳລັບການໃຊ້ງານຈິງ.',
+  'The storefront currently reads products from the catalog API; catalog edits here stay local and do not change it.': 'ໜ້າຮ້ານກຳລັງອ່ານສິນຄ້າຈາກ API; ການແກ້ໄຂລາຍການສິນຄ້າຢູ່ນີ້ເກັບໄວ້ໃນເຄື່ອງເທົ່ານັ້ນ ແລະ ບໍ່ປ່ຽນໜ້າຮ້ານ.',
 }

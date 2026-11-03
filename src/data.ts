@@ -17,6 +17,9 @@ export interface Product {
   moq?: number
   leadTime?: string
   stock: number
+  /** False when no stock data exists (API catalog before inventory): shown as "Availability on request",
+   * cannot be added to the cart, can still be quoted. Absent = stock is known (demo catalog). */
+  stockKnown?: boolean
   stockLabel: string
   img: string
   images: string[]

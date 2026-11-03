@@ -6,6 +6,7 @@ import { useCommerce } from '../commerce/CommerceProvider'
 import { useCT, fill } from '../commerce/text'
 import { useIssueText } from '../commerce/ui'
 import { assetUrl } from '../lib/assetUrl'
+import { CATALOG_SOURCE } from '../catalog/source'
 
 const NAVY = 'var(--nb-navy)'
 const BLUE = 'var(--nb-primary)'
@@ -208,7 +209,12 @@ export default function Cart() {
                   </ul>
                 </div>
               )}
-              {cartQuote.valid ? <Link to="/checkout" className="rounded-md flex items-center justify-center gap-2 w-full font-ui text-[13px] font-600 py-3.5 text-white no-underline transition-colors"
+              {CATALOG_SOURCE === 'api' && (
+                <p role="note" className="rounded-lg mb-4 p-3 font-ui text-[12px]" style={{ background: 'var(--nb-bg)', color: 'var(--nb-text-secondary)', border: '1px solid var(--nb-border)' }}>
+                  Online ordering is not available yet. Convert your cart to a quote request instead.
+                </p>
+              )}
+              {cartQuote.valid && CATALOG_SOURCE !== 'api' ? <Link to="/checkout" className="rounded-md flex items-center justify-center gap-2 w-full font-ui text-[13px] font-600 py-3.5 text-white no-underline transition-colors"
                 style={{ background: BLUE }} onMouseEnter={e => (e.currentTarget.style.background = BLUE_H)} onMouseLeave={e => (e.currentTarget.style.background = BLUE)}>
                 {t.cart.checkout} <ArrowRightIcon />
               </Link> : (

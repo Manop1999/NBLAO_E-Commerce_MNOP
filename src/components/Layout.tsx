@@ -413,13 +413,6 @@ export function Header() {
             >
               Industrial Supply · Vientiane, Laos PDR
             </span>
-            <Link
-              to="/admin"
-              className="font-ui text-[10px] tracking-wide"
-              style={{ color: NAVY }}
-            >
-              {t.nav.admin}
-            </Link>
           </div>
         </div>
       </div>

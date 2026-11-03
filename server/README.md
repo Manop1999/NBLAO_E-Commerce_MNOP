@@ -1,8 +1,9 @@
-# NB LAO shop server (Phase 1B-local, A1–A6)
+# NB LAO shop server (Phase 1B-local A1–A6, Phase 1D catalog API)
 
 The future backend API for `shop.nblao.com`. It is a **standalone package** (its own `package.json` and
 `pnpm-lock.yaml`), separate from the React/Vite frontend at the repository root. It runs **only on your own
-computer** against a local PostgreSQL. Nothing here is deployed, and the frontend does not call it yet.
+computer** against a local PostgreSQL. Nothing here is deployed. The published GitHub Pages site does not call
+it; only a local frontend started with `VITE_CATALOG_SOURCE=api` reads the catalog from it.
 
 ## Status
 
@@ -13,6 +14,7 @@ computer** against a local PostgreSQL. Nothing here is deployed, and the fronten
 | A3/A4 | PostgreSQL 17 in Docker on `127.0.0.1`, restricted role `nblao_app`, databases `nblao_dev` and `nblao_test` | Done |
 | A5 | Fastify app factory, zod configuration, `GET /api/health`, `GET /api/ready` | Done |
 | A6 | Prisma catalog schema (Brand, Category, Product, ProductVariant, ProductImage), first migration, idempotent demo seed | Done |
+| 1D | Public read-only catalog API: `GET /api/products`, `GET /api/brands` | Done |
 
 | Path | Purpose |
 |---|---|
@@ -20,7 +22,9 @@ computer** against a local PostgreSQL. Nothing here is deployed, and the fronten
 | `src/auth/permissions.ts` | Draft permission codes and a deny-by-default `can()` (A1). No roles or users yet (decision D12). |
 | `src/csv/parse.ts`, `src/csv/write.ts` | CSV reader/writer with formula-injection escaping (A1). Not used by any endpoint yet. |
 | `src/config.ts` | Environment validation with zod. Only `development`/`test`, only loopback bind addresses. |
-| `src/app.ts` | `buildApp()`: `GET /api/health` (never touches the database) and `GET /api/ready` (503 when the database does not answer within 2 s). |
+| `src/app.ts` | `buildApp()`: `GET /api/health` (never touches the database), `GET /api/ready` (503 when the database does not answer within 2 s) and, with a catalog reader, the catalog routes. |
+| `src/errors.ts` | One error envelope for every API error; internal details are logged, never returned. |
+| `src/catalog/` | Catalog API (1D): `query.ts` (zod query contract), `dto.ts` (public response shapes), `reader.ts` (Prisma reads with an explicit field list), `routes.ts`. |
 | `src/server.ts` | `pnpm dev` entry point: config → `assertLocalDatabase()` → Prisma client → listen on `127.0.0.1:3001`. |
 | `src/db/client.ts` | The only place a Prisma client is created; runs the guard first. |
 | `src/db/commands.ts`, `scripts/db.ts` | `db:migrate`, `db:seed`, `db:reset`, each guarded. |
@@ -28,7 +32,43 @@ computer** against a local PostgreSQL. Nothing here is deployed, and the fronten
 | `prisma/schema.prisma`, `prisma/migrations/` | Catalog schema and the committed migration (with CHECK constraints). |
 | `docker-compose.yml`, `docker/postgres/initdb/01-nblao.sh` | Local PostgreSQL 17.11 and its first-start setup. |
 | `test/unit/` | Unit tests (no database): guard, config, endpoints, client guard, seed helpers, CSV, permissions, frontend isolation. |
-| `test/db/` | Integration tests against `nblao_test`: readiness, seed idempotency, constraints. |
+| `test/db/` | Integration tests against `nblao_test`: readiness, seed idempotency and protection, constraints, catalog reads and pagination. |
+
+## Catalog API (Phase 1D, read-only, public)
+
+| Endpoint | Query | Response |
+|---|---|---|
+| `GET /api/products` | `page` (≥ 1, default 1), `pageSize` (1–100, default 24), `sort` (`featured` \| `price_asc` \| `price_desc` \| `name_asc`), `category` (slug; includes subcategories), `brand` (brand id), `q` (≤ 100 chars; name, SKU or model, case-insensitive) | `{ items, page, pageSize, total, totalPages }` |
+| `GET /api/brands` | none | `{ items }` |
+
+- **Visibility:** active products in a supported currency (USD, THB, LAK); only active and visible variants;
+  active brands only (a product whose brand is inactive shows `brand: null`).
+- **Public fields only:** the reader selects an explicit field list and `dto.ts` maps it; JSON columns are
+  re-shaped field by field. Prices are `{ minor: "<integer string>", currency, decimals }`.
+- **Deterministic paging:** every sort ends with the product id, so pages never overlap or skip rows.
+- **Strict queries:** unknown, repeated or malformed parameters → `400 { error: { code: "invalid_query", message, issues } }`.
+  Unknown routes and methods → `404 { error: { code: "not_found", ... } }`. Unexpected failures →
+  `500 { error: { code: "internal", ... } }` with details only in the server log.
+- No write routes, no authentication, no CORS. `/api/health` and `/api/ready` are unchanged.
+
+### Using it from the frontend (local development)
+
+```sh
+# terminal 1 (server/): database and API
+docker compose up -d --wait && pnpm db:migrate && pnpm db:seed && pnpm dev
+# terminal 2 (repository root): storefront reading the API through the Vite proxy
+VITE_CATALOG_SOURCE=api pnpm dev
+```
+
+With `VITE_CATALOG_SOURCE=api` the Vite dev server proxies `/api` to `127.0.0.1:3001` and listens on `127.0.0.1`
+only. The storefront loads every product page and keeps the existing browser-side EN/LO/TH search. Stock is not
+part of the API yet, so products show "Availability on request", Add to Cart and Checkout are disabled, and RFQ
+stays available. GitHub Pages builds always use the demo catalog: `scripts/verify-build-output.mjs` refuses an
+API-mode build.
+
+**Scaling note:** browser-side search is limited to 5,000 products (50 pages × 100). Beyond that, move
+multilingual search to the server (stored Lao/Thai names or a translation table with PostgreSQL full-text or
+trigram indexes) and page the product list on the server.
 
 ## Requirements
 
@@ -131,7 +171,7 @@ reaches the frontend CSS (it needs the root `pnpm install`).
 
 ## Not implemented yet (each needs separate approval)
 
-- Catalog read API and any frontend integration (`VITE_API_BASE_URL`), CORS.
+- CORS, any write API, a hosted API for the published site.
 - Authentication, staff/customer accounts, role mapping (D12).
 - Orders, RFQ, quotations, inventory, payments.
 - CSV import jobs or endpoints.

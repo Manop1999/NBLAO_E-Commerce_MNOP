@@ -12,6 +12,7 @@ import ProductReviews, { RatingSummary } from '../components/ProductReviews'
 import RelatedProducts from '../components/RelatedProducts'
 import { hasVariants, isSelectionComplete, pruneSelection, resolveVariant, variantCanBePurchased, variantLabel, type Selection } from '../lib/variants'
 import { useToast } from '../components/Toast'
+import { useCatalogNotice } from '../components/CatalogStatus'
 import { DEMO_DOCUMENT_TITLES } from '../lib/demoProducts'
 import { assetUrl } from '../lib/assetUrl'
 
@@ -88,6 +89,7 @@ export default function ProductDetail() {
   const [selection, setSelection] = useState<Selection>({})
   const [showOptionErrors, setShowOptionErrors] = useState(false)
   const { addToast } = useToast()
+  const catalogNotice = useCatalogNotice()
 
   const product = products.find(p => String(p.id) === id)
   const variantProduct = !!product && hasVariants(product)
@@ -95,7 +97,10 @@ export default function ProductDetail() {
   const optionsComplete = !!product && (!variantProduct || isSelectionComplete(product, selection))
   const activeProduct = product && product.active !== false
   const unitStock = selectedVariant ? selectedVariant.stock : product?.stock ?? 0
-  const canBuy = !!product && !!activeProduct && (variantProduct ? !!selectedVariant && variantCanBePurchased(selectedVariant) : product.stock > 0)
+  // No stock data (API catalog): the product can be quoted in any quantity but not bought online yet.
+  const quoteOnly = product?.stockKnown === false
+  const maxQty = quoteOnly ? 999_999 : Math.max(1, unitStock)
+  const canBuy = !!product && !!activeProduct && !quoteOnly && (variantProduct ? !!selectedVariant && variantCanBePurchased(selectedVariant) : product.stock > 0)
   const unitSku = selectedVariant?.sku ?? product?.sku ?? ''
   const baseGallery = product ? [product.img, ...(product.images ?? [])].filter((src, i, all) => !!src && all.indexOf(src) === i) : []
   const gallery = product ? (selectedVariant?.images?.length ? selectedVariant.images : baseGallery) : []
@@ -104,10 +109,12 @@ export default function ProductDetail() {
   const certifications = product?.certifications ?? []
   const documents = product?.documents ?? []
   useEffect(() => { setSelection({}); setQty(1); setActiveImg(0); setShowOptionErrors(false) }, [id])
-  useEffect(() => { setQty(q => Math.max(1, Math.min(q, Math.max(1, unitStock)))) ; setActiveImg(0) }, [selectedVariant?.id, unitStock])
+  useEffect(() => { setQty(q => Math.max(1, Math.min(q, maxQty))) ; setActiveImg(0) }, [selectedVariant?.id, maxQty])
   const inWish = wishlist.includes(product?.id ?? 0)
   const productBrand = product ? getBrandById(product.brandId) : undefined
   const brandName = getBrandName(productBrand, lang)
+
+  if (!product && catalogNotice) return <div className="max-w-[900px] mx-auto px-6 py-16">{catalogNotice}</div>
 
   if (!product) return (
     <div className="py-24 text-center">
@@ -192,8 +199,8 @@ export default function ProductDetail() {
                 <div className="font-ui text-[11px] mt-1" style={{ color: '#8f9faf' }}>{ct.approx_excl}</div>
               </div>
               <div className="text-right">
-                <StockBadge stock={variantProduct && !selectedVariant ? product.stock : unitStock} active={!!activeProduct && (!selectedVariant || (selectedVariant.active && selectedVariant.purchasable))} size="md" />
-                <div className="font-ui text-[11px] mt-1" style={{ color: '#8f9faf' }}>{variantProduct && !selectedVariant ? 'Select options to see availability' : `${unitStock} units available`}</div>
+                <StockBadge stock={quoteOnly ? null : variantProduct && !selectedVariant ? product.stock : unitStock} active={!!activeProduct && (quoteOnly || !selectedVariant || (selectedVariant.active && selectedVariant.purchasable))} size="md" />
+                <div className="font-ui text-[11px] mt-1" style={{ color: '#8f9faf' }}>{quoteOnly ? 'Online ordering is not available yet. Request a quote.' : variantProduct && !selectedVariant ? 'Select options to see availability' : `${unitStock} units available`}</div>
               </div>
             </div>
 
@@ -207,14 +214,15 @@ export default function ProductDetail() {
               <div className="rounded-md overflow-hidden flex items-center" style={{ border: '1px solid var(--nb-border)' }}>
                 <button onClick={() => setQty(Math.max(1, qty - 1))} className="rounded-md px-3 py-2.5 transition-colors hover:bg-slate-50"><MinusIcon /></button>
                 <span className="font-ui text-[14px] font-600 px-4" style={{ color: NAVY }}>{qty}</span>
-                <button onClick={() => setQty(Math.min(Math.max(1, unitStock), qty + 1))} className="rounded-md px-3 py-2.5 transition-colors hover:bg-slate-50"><PlusIcon /></button>
+                <button onClick={() => setQty(Math.min(maxQty, qty + 1))} className="rounded-md px-3 py-2.5 transition-colors hover:bg-slate-50"><PlusIcon /></button>
               </div>
-              <span className="font-ui text-[12px]" style={{ color: '#8f9faf' }}>Max: {unitStock} units</span>
+              {!quoteOnly && <span className="font-ui text-[12px]" style={{ color: '#8f9faf' }}>Max: {unitStock} units</span>}
             </div>
 
             {/* CTAs */}
             <div className="flex flex-col gap-2.5 mb-5">
-              <button onClick={handleAddToCart} disabled={!priceFor(product, undefined, selectedVariant?.id).ok || (optionsComplete && !canBuy)}
+              <button onClick={handleAddToCart} disabled={quoteOnly || !priceFor(product, undefined, selectedVariant?.id).ok || (optionsComplete && !canBuy)}
+                title={quoteOnly ? 'Online ordering is not available yet. Request a quote.' : undefined}
                 className="rounded-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-ui text-[13px] font-600 py-3.5 text-white w-full transition-all"
                 style={{ background: added ? '#16a34a' : BLUE }}>
                 <CartIcon />

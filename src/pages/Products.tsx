@@ -5,6 +5,9 @@ import { useT } from '../i18n'
 import { CATEGORIES, CATEGORY_SUBS, type Product } from '../data'
 import { getBrandName } from '../brands'
 import { StockBadge } from '../components/StockBadge'
+import { useCatalogNotice } from '../components/CatalogStatus'
+import { CATALOG_SOURCE } from '../catalog/source'
+import { displayStock } from '../lib/stockStatus'
 import { Pagination } from '../components/Pagination'
 import { useToast } from '../components/Toast'
 import { useCT } from '../commerce/text'
@@ -140,15 +143,17 @@ function FilterControls({ category, setCategory, subcategory, setSubcategory, br
         </div>
       </div>
 
-      {/* In Stock */}
-      <div>
-        <div className="font-display font-700 text-[11px] tracking-wide mb-2 uppercase" style={{ color: NAVY }}>{t.products.availability}</div>
-        <label className="flex items-center gap-2.5 cursor-pointer">
-          <input type="checkbox" checked={stockOnly} onChange={e => setStockOnly(e.target.checked)}
-            className="w-4 h-4 accent-[var(--nb-primary)]" />
-          <span className="font-ui text-[12px]" style={{ color: '#475569' }}>{t.products.in_stock_only}</span>
-        </label>
-      </div>
+      {/* In Stock — hidden for the API catalog, which has no stock data yet */}
+      {CATALOG_SOURCE !== 'api' && (
+        <div>
+          <div className="font-display font-700 text-[11px] tracking-wide mb-2 uppercase" style={{ color: NAVY }}>{t.products.availability}</div>
+          <label className="flex items-center gap-2.5 cursor-pointer">
+            <input type="checkbox" checked={stockOnly} onChange={e => setStockOnly(e.target.checked)}
+              className="w-4 h-4 accent-[var(--nb-primary)]" />
+            <span className="font-ui text-[12px]" style={{ color: '#475569' }}>{t.products.in_stock_only}</span>
+          </label>
+        </div>
+      )}
 
       {/* Clear */}
       {hasFilters && (
@@ -275,7 +280,7 @@ function ProductCard({ product, view }: { product: Product; view: 'grid' | 'list
           <div className="flex items-center gap-2 mb-1.5">
             <ProductPrice product={product} />
             {priceOk && <span className="font-ui text-[10px]" style={{ color: '#94a3b8' }}>/{product.priceUnit}</span>}
-            <StockBadge stock={product.stock} size="sm" />
+            <StockBadge stock={displayStock(product)} size="sm" />
           </div>
           <div className="flex items-center gap-1.5 flex-wrap">
             {product.stock > 0 && priceOk && (
@@ -327,7 +332,7 @@ function ProductCard({ product, view }: { product: Product; view: 'grid' | 'list
             {brandRecord?.logo && <img src={assetUrl(brandRecord.logo)} alt="" className="w-auto object-contain shrink-0" style={{ maxHeight: 13, maxWidth: 42 }} />}
             <span className="font-ui text-[9px] font-700 tracking-[0.10em] uppercase truncate mr-1" style={{ color: BLUE }}>{brandName}</span>
           </span>
-          <StockBadge stock={product.stock} size="sm" />
+          <StockBadge stock={displayStock(product)} size="sm" />
         </div>
         <Link to={`/products/${product.id}`} className="no-underline">
           <h3 className="font-display font-700 text-[12px] leading-snug mb-1 hover:text-[var(--nb-primary)] transition-colors line-clamp-2" style={{ color: NAVY }}>{product.name}</h3>
@@ -345,7 +350,7 @@ function ProductCard({ product, view }: { product: Product; view: 'grid' | 'list
             </button>
           ) : (
             <button disabled className="rounded-sm flex-1 min-w-0 font-ui text-[10px] font-600 px-1 whitespace-nowrap" style={{ background: 'var(--nb-bg)', color: '#94a3b8' }}>
-              {product.stock > 0 ? ct.price_unavailable : t.common.out_of_stock}
+              {product.stockKnown === false ? 'Quote only' : product.stock > 0 ? ct.price_unavailable : t.common.out_of_stock}
             </button>
           )}
           <button onClick={() => { addToRFQ({ id: product.id, name: product.name, sku: product.sku, img: product.img, category: product.category }); addToast(t.product.added_rfq, 'info') }}
@@ -380,7 +385,8 @@ export default function Products() {
   const [sortKey, setSortKey] = useState<typeof SORT_KEYS[number]>('sort_featured')
   const [view, setView] = useState<'grid' | 'list'>('grid')
   const [page, setPage] = useState(1)
-  const { compare, activeDrawer, setActiveDrawer, brands, products } = useStore()
+  const { compare, activeDrawer, setActiveDrawer, getBrandById, products } = useStore()
+  const catalogNotice = useCatalogNotice()
 
   // Close filter drawer when leaving this page
   useEffect(() => {
@@ -396,8 +402,9 @@ export default function Products() {
 
   const searchIndex = useMemo(() => {
     const dicts = [fromEnglish.lo, fromEnglish.th]
-    return new Map(products.map(p => [p.id, buildSearchIndex(p, (() => { const b = brands.find(x => x.id === p.brandId); return b ? [b.name, b.nameEn, b.nameLo].filter(Boolean).join(' ') : '' })(), dicts)]))
-  }, [products, brands])
+    return new Map(products.map(p => [p.id, buildSearchIndex(p, (() => { const b = getBrandById(p.brandId); return b ? [b.name, b.nameEn, b.nameLo].filter(Boolean).join(' ') : '' })(), dicts)]))
+    // getBrandById reads the same catalog source as `products`, so `products` changing covers it.
+  }, [products])
 
   const filtered = useMemo(() => {
     let list = [...products]
@@ -579,7 +586,7 @@ export default function Products() {
             </div>
 
             {/* Product grid */}
-            {filtered.length === 0 ? (
+            {catalogNotice ? catalogNotice : filtered.length === 0 ? (
               <div className="rounded-lg bg-white flex flex-col items-center justify-center py-16" style={{ border: '1px solid var(--nb-border)' }}>
                 <div className="w-14 h-14 flex items-center justify-center mb-4" style={{ background: 'var(--nb-bg)' }}>
                   <SearchIcon />

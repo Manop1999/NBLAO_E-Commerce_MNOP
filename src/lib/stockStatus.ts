@@ -7,7 +7,7 @@ export const STOCK_STATUS_STYLE: Record<StockStatusKey, { color: string; bg: str
   low: { color: '#92400E', bg: '#FEF3C7', label: 'Low Stock' },
   out: { color: '#991B1B', bg: '#FEE2E2', label: 'Out of Stock' },
   unavailable: { color: '#475569', bg: '#E2E8F0', label: 'Unavailable' },
-  unknown: { color: '#475569', bg: '#F1F5F9', label: 'Check Availability' },
+  unknown: { color: '#475569', bg: '#F1F5F9', label: 'Availability on request' },
 }
 
 export interface StockInput {
@@ -23,6 +23,9 @@ export function getStockStatus({ stock, active = true, threshold = LOW_STOCK_THR
   if (stock <= threshold) return 'low'
   return 'in'
 }
+
+/** Stock value for StockBadge: null when the product has no stock data, so it shows "Availability on request". */
+export const displayStock = (p: { stock: number; stockKnown?: boolean }): number | null => (p.stockKnown === false ? null : p.stock)
 
 export function isPurchasable(input: StockInput): boolean {
   const s = getStockStatus(input)

@@ -17,6 +17,7 @@ import {
   sortBrands,
 } from "./brands"
 import { Product, PRODUCTS } from "./data"
+import { useCatalog } from "./catalog/CatalogProvider"
 import { applyDemoDefaults, ensureProductLists } from "./lib/demoProducts"
 import {
   Advertisement,
@@ -119,9 +120,9 @@ interface StoreCtx {
   saveBrand: (brand: Brand) => void
   toggleBrandStatus: (id: string) => void
   deleteBrand: (id: string) => void
-  /** Active products only (storefront). */
+  /** Active products only (storefront). In API catalog mode: the products loaded from the API, nothing local. */
   products: Product[]
-  /** Every product including inactive ones (admin, commerce engine). */
+  /** Every local product including inactive ones (Admin, commerce engine). Always the local demo catalog. */
   allProducts: Product[]
   saveProduct: (product: Product) => void
   deleteProduct: (id: number) => void
@@ -318,12 +319,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     document.documentElement.lang = HTML_LANG[lang]
   }, [lang])
 
+  // Storefront catalog. Demo mode: the local catalog (bundled demo data plus Admin edits). API mode: only what the
+  // API returned; local demo products are never mixed in, and Admin keeps editing the local catalog.
+  const catalog = useCatalog()
+  const apiCatalog = catalog.source === "api" ? catalog.catalog : null
+  const storefrontProducts = catalog.source === "api" ? (apiCatalog?.products ?? []) : products.filter((p) => p.active !== false)
+  const lookupProducts = catalog.source === "api" ? storefrontProducts : products
+
   const addToCart = (item: Omit<CartItem, "qty">, qty = 1) => {
-    const src = products.find((p) => p.id === item.id)
+    const src = lookupProducts.find((p) => p.id === item.id)
     if (!item.variantId && src && hasVariants(src)) {
       window.dispatchEvent(new CustomEvent("nblao:variant-required", { detail: { id: item.id } }))
       return
     }
+    // No stock data yet (API catalog): purchase is unavailable; customers use Request a Quote instead.
+    if (src?.stockKnown === false) return
     if (item.stock <= 0) return
     window.dispatchEvent(new CustomEvent("nblao:cart-added", { detail: { name: item.name, variantLabel: item.variantLabel } }))
     setCart((prev) => {
@@ -363,7 +373,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     )
 
   const addToRFQ = (item: Omit<RFQItem, "qty">, qty = 1) => {
-    const src = products.find((p) => p.id === item.id)
+    const src = lookupProducts.find((p) => p.id === item.id)
     if (!item.variantId && src && hasVariants(src)) {
       window.dispatchEvent(new CustomEvent("nblao:variant-required", { detail: { id: item.id } }))
       return
@@ -412,8 +422,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const cartTotal = cart.reduce((sum, c) => sum + c.price * c.qty, 0)
   const cartCount = cart.reduce((sum, c) => sum + c.qty, 0)
-  const activeBrands = getActiveBrands(brands)
-  const getBrandById = (id: string) => getBrand(brands, id)
+  const activeBrands = catalog.source === "api" ? (apiCatalog?.brands ?? []) : getActiveBrands(brands)
+  const getBrandById = (id: string) => (catalog.source === "api" ? activeBrands.find((brand) => brand.id === id) : getBrand(brands, id))
   const saveBrand = (brand: Brand) =>
     setBrands((prev) => {
       const ordered = sortBrands(prev).filter((item) => item.id !== brand.id)
@@ -540,7 +550,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         saveBrand,
         toggleBrandStatus,
         deleteBrand,
-        products: products.filter((p) => p.active !== false),
+        products: storefrontProducts,
         allProducts: products,
         saveProduct,
         deleteProduct,

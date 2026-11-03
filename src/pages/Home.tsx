@@ -1,4 +1,6 @@
 import { StockBadge } from '../components/StockBadge'
+import { useCatalogNotice } from '../components/CatalogStatus'
+import { displayStock } from '../lib/stockStatus'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ProductPrice } from '../commerce/ui'
 import { useCommerce } from '../commerce/CommerceProvider'
@@ -232,7 +234,7 @@ function SalesPromotions() {
                   <p className="font-ui text-[10px] truncate mt-1" style={{ color: 'var(--nb-text-secondary)' }}>{product.model} · {product.category}</p>
                   <div className="flex items-center justify-between gap-2 mt-auto pt-3">
                     <div className="flex items-baseline gap-1 min-w-0"><ProductPrice product={product} size="sm" />{discount && <><span className="font-ui text-[9px] font-700 whitespace-nowrap" style={{ color: GOLD }}>−{discount}%</span></>}</div>
-                    <StockBadge stock={product.stock} />
+                    <StockBadge stock={displayStock(product)} />
                   </div>
                   <div className="product-card-actions flex gap-1.5 h-8 mt-2">
                     <button type="button" disabled={product.stock <= 0 || !priceFor(product).ok} onClick={() => addToCart({ id: product.id, name: product.name, sku: product.sku, price: promotionalPrice ?? product.price, img: product.img, category: product.category, brand, stock: product.stock, priceUnit: product.priceUnit })} className="rounded-sm flex-1 min-w-0 font-ui text-[10px] font-600 px-1 text-white whitespace-nowrap disabled:opacity-50" style={{ background: isHov ? BLUE_H : BLUE }}>Add to Cart</button>
@@ -306,6 +308,7 @@ function FeaturedProducts() {
   const { addToCart, toggleWishlist, wishlist, addToRFQ, getBrandById, lang, products } = useStore()
   const { priceFor } = useCommerce()
   const featured = products.filter(p => p.featured).slice(0, 8)
+  const catalogNotice = useCatalogNotice()
 
   return (
     <section className="py-8 lg:py-14" style={{ background: '#fff' }}>
@@ -319,7 +322,7 @@ function FeaturedProducts() {
             {t.header.view_all} <ArrowRightIcon />
           </Link>
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 lg:gap-5">
+        {catalogNotice ?? <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 lg:gap-5">
           {featured.map((p) => {
             const isHov = hovered === p.id
             const inWish = wishlist.includes(p.id)
@@ -345,7 +348,7 @@ function FeaturedProducts() {
                   </Link>
                   <div className="flex items-center justify-between mb-2 mt-auto pt-1">
                     <ProductPrice product={p} size="sm" />
-                    <StockBadge stock={p.stock} />
+                    <StockBadge stock={displayStock(p)} />
                   </div>
                   <div className="product-card-actions flex gap-1.5 h-8">
                     <button disabled={!priceFor(p).ok || p.stock <= 0} onClick={() => addToCart({ id: p.id, name: p.name, sku: p.sku, price: p.price, img: p.img, category: p.category, brand: getBrandName(getBrandById(p.brandId), lang), stock: p.stock })}
@@ -363,7 +366,7 @@ function FeaturedProducts() {
               </div>
             )
           })}
-        </div>
+        </div>}
       </div>
     </section>
   )

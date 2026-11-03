@@ -6,6 +6,7 @@ import {
   useLocation,
 } from "react-router-dom"
 import { StoreProvider } from "./store"
+import { CatalogProvider } from "./catalog/CatalogProvider"
 import { AuthProvider, useAuth } from "./auth"
 import { CommerceProvider } from "./commerce/CommerceProvider"
 import { ToastProvider } from "./components/Toast"
@@ -68,6 +69,7 @@ function RouteTitle() {
 
 export default function App() {
   return (
+    <CatalogProvider>
     <StoreProvider>
       <AuthProvider>
         <CommerceProvider>
@@ -159,5 +161,6 @@ export default function App() {
         </CommerceProvider>
       </AuthProvider>
     </StoreProvider>
+    </CatalogProvider>
   )
 }

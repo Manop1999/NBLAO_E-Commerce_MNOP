@@ -24,6 +24,8 @@ export interface ProductVariant {
 export interface VariantProductLike {
   price: number
   stock: number
+  /** False = no stock data (API catalog): variants are offered for quotation, not purchase. */
+  stockKnown?: boolean
   options?: ProductOption[]
   variants?: ProductVariant[]
 }
@@ -39,6 +41,9 @@ export const visibleVariants = (p: Pick<VariantProductLike, 'variants'>): Produc
 
 export const variantCanBePurchased = (v: ProductVariant): boolean =>
   v.active && v.visible && v.purchasable && v.stock > 0
+
+/** A variant a customer may request a quotation for: it exists and is offered, whatever its stock. */
+export const variantCanBeQuoted = (v: ProductVariant): boolean => v.active && v.visible
 
 export const variantPrice = (p: Pick<VariantProductLike, 'price'>, v: ProductVariant): number =>
   typeof v.price === 'number' && v.price > 0 ? v.price : p.price
@@ -82,11 +87,14 @@ export type ValueState = 'available' | 'out_of_stock' | 'invalid'
 /**
  * State of one option value given the other current selections:
  * invalid = no visible variant has that combination, out_of_stock = exists but cannot be bought.
+ * Products without stock data (`stockKnown: false`) use the quotation rule, so RFQ still lets customers choose
+ * every offered combination.
  */
 export function optionValueState(p: VariantProductLike, sel: Selection, optionName: string, value: string): ValueState {
   const candidates = visibleVariants(p).filter((v) => v.options[optionName] === value && matches(v, sel, optionName))
   if (!candidates.length) return 'invalid'
-  return candidates.some(variantCanBePurchased) ? 'available' : 'out_of_stock'
+  const usable = p.stockKnown === false ? variantCanBeQuoted : variantCanBePurchased
+  return candidates.some(usable) ? 'available' : 'out_of_stock'
 }
 
 /** Drop selections that no longer lead to any visible variant (after another option changed). */
