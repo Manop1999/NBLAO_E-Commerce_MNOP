@@ -5,12 +5,17 @@
  * Idempotent: rows are upserted by their natural keys (brand id, category slug, product SKU, variant SKU) and
  * a product's demo images are replaced as a whole, so running it again leaves the same rows (no duplicates).
  *
+ * Non-demo rows are never changed. Before any write, the seed looks for non-demo rows that share a natural key
+ * with the source and refuses with DemoSeedConflictError if it finds one. All writes then run in a single
+ * transaction, and every upsert only matches rows with isDemo = true, so a conflict that appears after the
+ * check fails the whole seed instead of overwriting anything. Deletes are limited to isDemo = true rows.
+ *
  * Callers must check the target with assertLocalDatabase() first (scripts/db.ts and createDatabaseClient do).
  */
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { z } from 'zod'
-import type { PrismaClient } from '../generated/prisma/client.ts'
+import type { Prisma, PrismaClient } from '../generated/prisma/client.ts'
 
 /** Minor-unit digits per currency, as in src/commerce/money.ts DEFAULT_CURRENCIES. */
 export const CURRENCY_DECIMALS: Readonly<Record<string, number>> = { USD: 2, THB: 2, LAK: 0 }
@@ -122,79 +127,176 @@ export interface SeedSummary {
 
 const orNull = (value: string | undefined): string | null => (value && value.trim() ? value : null)
 
-export async function seedDemoCatalog(prisma: PrismaClient, catalog: DemoCatalog): Promise<SeedSummary> {
-  const summary: SeedSummary = { brands: 0, categories: 0, products: 0, variants: 0, images: 0 }
+/** Thrown before any write when the source would overwrite non-demo rows or contains duplicate keys. */
+export class DemoSeedConflictError extends Error {
+  readonly conflicts: string[]
 
-  for (const brand of catalog.brands) {
-    const fields = {
-      name: brand.name,
-      nameLo: orNull(brand.nameLo),
-      logoUrl: orNull(brand.logo),
-      websiteUrl: orNull(brand.websiteUrl),
-      description: orNull(brand.description),
-      active: brand.active,
-      displayOrder: brand.displayOrder,
-      isDemo: true,
-    }
-    await prisma.brand.upsert({ where: { id: brand.id }, create: { id: brand.id, ...fields }, update: fields })
-    summary.brands++
+  constructor(conflicts: string[]) {
+    super(`Demo seed refused, nothing was changed: ${conflicts.join('; ')}`)
+    this.name = 'DemoSeedConflictError'
+    this.conflicts = conflicts
   }
-  const brandIds = new Set(catalog.brands.map(brand => brand.id))
+}
 
+interface PlannedCategory {
+  slug: string
+  name: string
+  parentSlug: string | null
+  displayOrder: number
+}
+
+/** Natural keys and category tree the seed will write, computed without touching the database. */
+export interface DemoSeedPlan {
+  brandIds: string[]
+  categories: PlannedCategory[]
+  productSkus: string[]
+  variantSkus: string[]
+  /** Category slug for each product, by product SKU. */
+  productCategory: Map<string, string>
+}
+
+const categorySlugOf = (category: string, subcategory: string): string => {
+  const parentSlug = slugify(category)
+  return subcategory.trim() ? `${parentSlug}/${slugify(subcategory)}` : parentSlug
+}
+
+export function planDemoSeed(catalog: DemoCatalog): DemoSeedPlan {
   // Top-level categories in catalog order, then subcategories (including ones only products mention).
-  const categoryIds = new Map<string, string>()
-  const upsertCategory = async (slug: string, name: string, parentId: string | null, displayOrder: number) => {
-    const fields = { name, parentId, displayOrder, isDemo: true }
-    const row = await prisma.category.upsert({ where: { slug }, create: { slug, ...fields }, update: fields })
-    categoryIds.set(slug, row.id)
-    summary.categories++
-    return row.id
-  }
+  const categories: PlannedCategory[] = []
   const topLevel = [...catalog.categories]
   for (const product of catalog.products) if (!topLevel.includes(product.category)) topLevel.push(product.category)
   for (const [index, name] of topLevel.entries()) {
     const parentSlug = slugify(name)
-    const parentId = await upsertCategory(parentSlug, name, null, index)
+    categories.push({ slug: parentSlug, name, parentSlug: null, displayOrder: index })
     const subs = [...(catalog.categorySubs[name] ?? [])]
     for (const product of catalog.products) {
       if (product.category === name && product.subcategory.trim() && !subs.includes(product.subcategory)) subs.push(product.subcategory)
     }
-    for (const [subIndex, sub] of subs.entries()) await upsertCategory(`${parentSlug}/${slugify(sub)}`, sub, parentId, subIndex)
+    for (const [subIndex, sub] of subs.entries()) {
+      categories.push({ slug: `${parentSlug}/${slugify(sub)}`, name: sub, parentSlug, displayOrder: subIndex })
+    }
   }
+  return {
+    brandIds: catalog.brands.map(brand => brand.id),
+    categories,
+    productSkus: catalog.products.map(product => product.sku),
+    variantSkus: catalog.products.flatMap(product => (product.variants ?? []).map(variant => variant.sku)),
+    productCategory: new Map(catalog.products.map(product => [product.sku, categorySlugOf(product.category, product.subcategory)])),
+  }
+}
 
-  for (const product of catalog.products) {
-    const currency = (product.priceCurrency ?? 'USD').toUpperCase()
-    const parentSlug = slugify(product.category)
-    const categorySlug = product.subcategory.trim() ? `${parentSlug}/${slugify(product.subcategory)}` : parentSlug
-    const categoryId = categoryIds.get(categorySlug)
-    if (!categoryId) throw new Error(`category ${categorySlug} was not seeded`)
+const duplicatesOf = (values: string[]): string[] => [...new Set(values.filter((value, index) => values.indexOf(value) !== index))]
 
-    const fields = {
-      legacyId: product.id,
-      name: product.name,
-      model: orNull(product.model),
-      brandId: brandIds.has(product.brandId) ? product.brandId : null,
-      categoryId,
-      priceMinor: toMinorUnits(product.price, currency),
-      currency,
-      priceUnit: orNull(product.priceUnit),
-      minOrderQuantity: product.moq ?? null,
-      leadTime: orNull(product.leadTime),
-      shortDescription: orNull(product.shortDesc),
-      description: orNull(product.description),
-      specs: product.specs,
-      options: product.options ?? [],
-      applications: product.applications,
-      tags: product.tags,
-      certifications: product.certifications,
-      featured: product.featured,
-      active: product.active ?? true,
-      demoOptions: product.demoOptions ?? false,
-      isDemo: true,
+/** Duplicate keys inside the source would make one demo row silently overwrite another. */
+export function findSourceDuplicates(plan: DemoSeedPlan): string[] {
+  const keys: [string, string[]][] = [
+    ['brand id', plan.brandIds],
+    ['category slug', plan.categories.map(category => category.slug)],
+    ['product SKU', plan.productSkus],
+    ['variant SKU', plan.variantSkus],
+  ]
+  return keys.flatMap(([label, values]) => duplicatesOf(values).map(value => `duplicate ${label} "${value}" in the demo source`))
+}
+
+type Db = PrismaClient | Prisma.TransactionClient
+
+/** Non-demo rows that share a natural key with the seed source. Read-only. */
+export async function findNonDemoConflicts(db: Db, plan: DemoSeedPlan): Promise<string[]> {
+  const [brands, categories, products, variants] = await Promise.all([
+    db.brand.findMany({ where: { id: { in: plan.brandIds }, isDemo: false }, select: { id: true } }),
+    db.category.findMany({ where: { slug: { in: plan.categories.map(category => category.slug) }, isDemo: false }, select: { slug: true } }),
+    db.product.findMany({ where: { sku: { in: plan.productSkus }, isDemo: false }, select: { sku: true } }),
+    db.productVariant.findMany({ where: { sku: { in: plan.variantSkus }, isDemo: false }, select: { sku: true } }),
+  ])
+  return [
+    ...brands.map(row => `brand id "${row.id}"`),
+    ...categories.map(row => `category slug "${row.slug}"`),
+    ...products.map(row => `product SKU "${row.sku}"`),
+    ...variants.map(row => `variant SKU "${row.sku}"`),
+  ].map(key => `${key} belongs to a non-demo record`)
+}
+
+/** Generous because the whole catalog is written in one transaction. */
+const SEED_TRANSACTION = { maxWait: 10_000, timeout: 120_000 }
+
+export async function seedDemoCatalog(prisma: PrismaClient, catalog: DemoCatalog): Promise<SeedSummary> {
+  const plan = planDemoSeed(catalog)
+  const duplicates = findSourceDuplicates(plan)
+  if (duplicates.length) throw new DemoSeedConflictError(duplicates)
+
+  return prisma.$transaction(async tx => {
+    // Checked inside the transaction, immediately before the first write.
+    const conflicts = await findNonDemoConflicts(tx, plan)
+    if (conflicts.length) throw new DemoSeedConflictError(conflicts)
+
+    const summary: SeedSummary = { brands: 0, categories: 0, products: 0, variants: 0, images: 0 }
+
+    // Every upsert below matches only isDemo = true rows. If a non-demo row with the same key appears after the
+    // check, the create branch hits the unique constraint and the whole transaction rolls back.
+    for (const brand of catalog.brands) {
+      const fields = {
+        name: brand.name,
+        nameLo: orNull(brand.nameLo),
+        logoUrl: orNull(brand.logo),
+        websiteUrl: orNull(brand.websiteUrl),
+        description: orNull(brand.description),
+        active: brand.active,
+        displayOrder: brand.displayOrder,
+        isDemo: true,
+      }
+      await tx.brand.upsert({ where: { id: brand.id, isDemo: true }, create: { id: brand.id, ...fields }, update: fields })
+      summary.brands++
+    }
+    const brandIds = new Set(plan.brandIds)
+
+    // Parents come before their children in the plan.
+    const categoryIds = new Map<string, string>()
+    for (const category of plan.categories) {
+      const parentId = category.parentSlug === null ? null : (categoryIds.get(category.parentSlug) ?? null)
+      const fields = { name: category.name, parentId, displayOrder: category.displayOrder, isDemo: true }
+      const row = await tx.category.upsert({
+        where: { slug: category.slug, isDemo: true },
+        create: { slug: category.slug, ...fields },
+        update: fields,
+      })
+      categoryIds.set(category.slug, row.id)
+      summary.categories++
     }
 
-    await prisma.$transaction(async tx => {
-      const row = await tx.product.upsert({ where: { sku: product.sku }, create: { sku: product.sku, ...fields }, update: fields })
+    for (const product of catalog.products) {
+      const currency = (product.priceCurrency ?? 'USD').toUpperCase()
+      const categorySlug = plan.productCategory.get(product.sku) ?? ''
+      const categoryId = categoryIds.get(categorySlug)
+      if (!categoryId) throw new Error(`category ${categorySlug} was not seeded`)
+
+      const fields = {
+        legacyId: product.id,
+        name: product.name,
+        model: orNull(product.model),
+        brandId: brandIds.has(product.brandId) ? product.brandId : null,
+        categoryId,
+        priceMinor: toMinorUnits(product.price, currency),
+        currency,
+        priceUnit: orNull(product.priceUnit),
+        minOrderQuantity: product.moq ?? null,
+        leadTime: orNull(product.leadTime),
+        shortDescription: orNull(product.shortDesc),
+        description: orNull(product.description),
+        specs: product.specs,
+        options: product.options ?? [],
+        applications: product.applications,
+        tags: product.tags,
+        certifications: product.certifications,
+        featured: product.featured,
+        active: product.active ?? true,
+        demoOptions: product.demoOptions ?? false,
+        isDemo: true,
+      }
+      const row = await tx.product.upsert({
+        where: { sku: product.sku, isDemo: true },
+        create: { sku: product.sku, ...fields },
+        update: fields,
+      })
 
       const variants = product.variants ?? []
       const variantIds = new Map<string, string>()
@@ -209,7 +311,7 @@ export async function seedDemoCatalog(prisma: PrismaClient, catalog: DemoCatalog
           isDemo: true,
         }
         const saved = await tx.productVariant.upsert({
-          where: { sku: variant.sku },
+          where: { sku: variant.sku, isDemo: true },
           create: { sku: variant.sku, ...variantFields },
           update: variantFields,
         })
@@ -238,8 +340,8 @@ export async function seedDemoCatalog(prisma: PrismaClient, catalog: DemoCatalog
       summary.products++
       summary.variants += variants.length
       summary.images += images.length
-    })
-  }
+    }
 
-  return summary
+    return summary
+  }, SEED_TRANSACTION)
 }
