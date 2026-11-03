@@ -36,22 +36,27 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            server/pnpm-lock.yaml
 
       - name: Install dependencies (lockfile must not change)
         run: pnpm install --frozen-lockfile
 
+      - name: Install server dependencies (separate package and lockfile)
+        run: pnpm install --frozen-lockfile --dir server
+
+      - name: Generate Prisma client
+        run: pnpm --dir server db:generate
+
       - name: Server unit tests
-        run: pnpm exec vitest run --root server
+        run: pnpm --dir server test
 
       - name: Frontend unit tests
         run: pnpm test
 
-      - name: Server TypeScript (strict)
-        shell: bash
-        run: >-
-          pnpm exec tsc --noEmit --strict --noUncheckedIndexedAccess --target ES2022 --lib ES2022
-          --module ESNext --moduleResolution bundler --types node --skipLibCheck
-          $(find server/src server/test -name '*.ts' | sort)
+      - name: Server TypeScript (strict, server/tsconfig.json)
+        run: pnpm exec tsc --noEmit -p server/tsconfig.json
 
       - name: Frontend TypeScript
         run: pnpm exec tsc --noEmit -p tsconfig.json
@@ -65,3 +70,61 @@ jobs:
 
       - name: Verify document shell (title, description, og meta, no Figma placeholders)
         run: node scripts/verify-build-output.mjs
+
+  server-db:
+    name: server-db
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Throwaway PostgreSQL 17 that exists only for this job. The passwords below are CI-only placeholders
+    # for a database that is never reachable outside the runner; they are not secrets.
+    services:
+      postgres:
+        image: postgres:17.11-alpine
+        env:
+          POSTGRES_USER: nblao_admin
+          POSTGRES_PASSWORD: ci-admin-only
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nblao_admin -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgresql://nblao_app:ci-app-only@127.0.0.1:5432/nblao_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          lfs: false
+
+      - name: Setup pnpm (pinned to .mise.toml)
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.3
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: server/pnpm-lock.yaml
+
+      - name: Install server dependencies (lockfile must not change)
+        run: pnpm install --frozen-lockfile --dir server
+
+      - name: Generate Prisma client
+        run: pnpm --dir server db:generate
+
+      - name: Create role nblao_app and databases (same script as the local Docker setup)
+        env:
+          POSTGRES_USER: nblao_admin
+          PGHOST: 127.0.0.1
+          PGPASSWORD: ci-admin-only
+          NBLAO_APP_PASSWORD: ci-app-only
+        run: sh server/docker/postgres/initdb/01-nblao.sh
+
+      - name: Migrations and database integration tests (nblao_test)
+        run: pnpm --dir server test:db

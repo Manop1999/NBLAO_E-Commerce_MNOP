@@ -1,0 +1,30 @@
+# Local PostgreSQL 17 for development and tests. Not for staging or production.
+# Usage (from server/): copy .env.example to .env, set the two passwords, then `docker compose up -d`.
+# The port is published on 127.0.0.1 only, so the database is not reachable from other machines.
+name: nblao
+
+services:
+  postgres:
+    image: postgres:17.11-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nblao_admin
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:?Set POSTGRES_SUPERUSER_PASSWORD in server/.env}
+      POSTGRES_DB: postgres
+      NBLAO_APP_PASSWORD: ${NBLAO_APP_PASSWORD:?Set NBLAO_APP_PASSWORD in server/.env}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - nblao-postgres-data:/var/lib/postgresql/data
+      # Runs once, on first start with an empty volume: creates role nblao_app and databases nblao_dev/nblao_test.
+      - ./docker/postgres/initdb:/docker-entrypoint-initdb.d:ro
+    mem_limit: 1536m
+    shm_size: 256mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nblao_admin -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  nblao-postgres-data:
