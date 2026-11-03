@@ -226,7 +226,7 @@ export default function ProductDetail() {
                 className="rounded-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-ui text-[13px] font-600 py-3.5 text-white w-full transition-all"
                 style={{ background: added ? '#16a34a' : BLUE }}>
                 <CartIcon />
-                {added ? t.product.added_cart : t.product.add_to_cart}
+                {quoteOnly ? 'Quote only' : added ? t.product.added_cart : t.product.add_to_cart}
               </button>
               <button onClick={() => { if (!optionsComplete) { setShowOptionErrors(true); addToast('Select all product options first.', 'warning'); return } addToRFQ({ id: product.id, name: product.name, sku: unitSku, img: gallery[0] || product.img, category: product.category, ...(selectedVariant ? { variantId: selectedVariant.id, variantLabel: variantLabel(product, selectedVariant) } : {}) }, qty); navigate('/rfq') }}
                 className="rounded-md font-ui text-[13px] font-600 py-3.5 w-full transition-all"

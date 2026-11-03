@@ -13,6 +13,7 @@ import LogoCarousel from '../components/LogoCarousel'
 import AdvertisementSlider from '../components/AdvertisementSlider'
 import { assetUrl } from '../lib/assetUrl'
 import { HOME_STATS } from '../content'
+import { CATALOG_SOURCE } from '../catalog/source'
 
 const NAVY = 'var(--nb-navy)'
 const BLUE = 'var(--nb-primary)'
@@ -198,7 +199,7 @@ function SalesPromotions() {
     .sort((a, b) => a.placement.displayOrder - b.placement.displayOrder)
     .slice(0, 8)
 
-  if (!selections.length) return null
+  if (CATALOG_SOURCE === 'api' || !selections.length) return null
 
   return (
     <section className="py-5 sm:py-8 lg:py-11" style={{ background: 'var(--nb-light-blue)' }} aria-labelledby="sales-promotions-heading">
@@ -351,10 +352,10 @@ function FeaturedProducts() {
                     <StockBadge stock={displayStock(p)} />
                   </div>
                   <div className="product-card-actions flex gap-1.5 h-8">
-                    <button disabled={!priceFor(p).ok || p.stock <= 0} onClick={() => addToCart({ id: p.id, name: p.name, sku: p.sku, price: p.price, img: p.img, category: p.category, brand: getBrandName(getBrandById(p.brandId), lang), stock: p.stock })}
+                    <button disabled={CATALOG_SOURCE === 'api' || !priceFor(p).ok || p.stock <= 0} onClick={() => addToCart({ id: p.id, name: p.name, sku: p.sku, price: p.price, img: p.img, category: p.category, brand: getBrandName(getBrandById(p.brandId), lang), stock: p.stock })}
                       className="rounded-sm flex-1 min-w-0 font-ui text-[10px] font-600 px-2 text-white whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
                       style={{ background: isHov ? BLUE_H : BLUE }}>
-                      {t.common.add_to_cart}
+                      {CATALOG_SOURCE === 'api' ? 'Quote only' : t.common.add_to_cart}
                     </button>
                     <button onClick={() => addToRFQ({ id: p.id, name: p.name, sku: p.sku, img: p.img, category: p.category })}
                       className="rounded-md shrink-0 font-ui text-[10px] font-600 px-2.5"

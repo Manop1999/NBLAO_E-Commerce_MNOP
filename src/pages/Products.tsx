@@ -385,7 +385,7 @@ export default function Products() {
   const [sortKey, setSortKey] = useState<typeof SORT_KEYS[number]>('sort_featured')
   const [view, setView] = useState<'grid' | 'list'>('grid')
   const [page, setPage] = useState(1)
-  const { compare, activeDrawer, setActiveDrawer, getBrandById, products } = useStore()
+  const { compare, activeDrawer, setActiveDrawer, activeBrands, products } = useStore()
   const catalogNotice = useCatalogNotice()
 
   // Close filter drawer when leaving this page
@@ -402,9 +402,12 @@ export default function Products() {
 
   const searchIndex = useMemo(() => {
     const dicts = [fromEnglish.lo, fromEnglish.th]
-    return new Map(products.map(p => [p.id, buildSearchIndex(p, (() => { const b = getBrandById(p.brandId); return b ? [b.name, b.nameEn, b.nameLo].filter(Boolean).join(' ') : '' })(), dicts)]))
-    // getBrandById reads the same catalog source as `products`, so `products` changing covers it.
-  }, [products])
+    return new Map(products.map(p => {
+      const brand = activeBrands.find(item => item.id === p.brandId)
+      const brandNames = brand ? [brand.name, brand.nameEn, brand.nameLo].filter(Boolean).join(' ') : ''
+      return [p.id, buildSearchIndex(p, brandNames, dicts)] as const
+    }))
+  }, [products, activeBrands])
 
   const filtered = useMemo(() => {
     let list = [...products]

@@ -47,8 +47,16 @@ export default function Cart() {
   const issueText = useIssueText()
   const qline = (id: number, variantId?: string) => cartQuote.lines.find((l) => l.productId === id && (l.variantId ?? '') === (variantId ?? ''))
   const nameOf = (id?: number) => cart.find((c) => c.id === id)?.name ?? ''
-  const unit = (id: number, variantId?: string) => { const l = qline(id, variantId); return l && l.price.ok ? fmt(l.unitMinor) : ct.price_unavailable }
-  const lineTotal = (id: number, variantId?: string) => { const l = qline(id, variantId); return l && l.price.ok ? fmt(l.lineTotalMinor) : ct.price_unavailable }
+  const unit = (id: number, variantId?: string) => {
+    if (CATALOG_SOURCE === 'api') return 'Availability on request'
+    const l = qline(id, variantId)
+    return l && l.price.ok ? fmt(l.unitMinor) : ct.price_unavailable
+  }
+  const lineTotal = (id: number, variantId?: string) => {
+    if (CATALOG_SOURCE === 'api') return 'Availability on request'
+    const l = qline(id, variantId)
+    return l && l.price.ok ? fmt(l.lineTotalMinor) : ct.price_unavailable
+  }
 
   if (cart.length === 0) {
     return (
@@ -186,7 +194,7 @@ export default function Cart() {
               <div className="flex flex-col gap-3 mb-5">
                 <div className="flex justify-between">
                   <span className="font-ui text-[13px]" style={{ color: 'var(--nb-text-secondary)' }}>{t.cart.subtotal} ({cart.length} {t.cart.items})</span>
-                  <span className="font-ui text-[13px] font-600" style={{ color: NAVY }}>{fmt(cartQuote.subtotalMinor)}</span>
+                  <span className="font-ui text-[13px] font-600" style={{ color: NAVY }}>{CATALOG_SOURCE === 'api' ? 'Availability on request' : fmt(cartQuote.subtotalMinor)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="font-ui text-[13px]" style={{ color: 'var(--nb-text-secondary)' }}>{t.checkout.shipping_fee}</span>
@@ -196,10 +204,10 @@ export default function Cart() {
 
               <div className="flex justify-between py-4 mb-5" style={{ borderTop: '2px solid var(--nb-border)' }}>
                 <span className="font-display font-700 text-[16px]" style={{ color: NAVY }}>{t.cart.total}</span>
-                <span className="font-display font-700 text-[22px]" style={{ color: NAVY }}>{fmt(cartQuote.subtotalMinor)}</span>
+                <span className="font-display font-700 text-[22px]" style={{ color: NAVY }}>{CATALOG_SOURCE === 'api' ? 'Availability on request' : fmt(cartQuote.subtotalMinor)}</span>
               </div>
 
-              {!cartQuote.valid && (
+              {CATALOG_SOURCE !== 'api' && !cartQuote.valid && (
                 <div role="alert" className="rounded-lg mb-4 p-3 font-ui text-[12px]" style={{ background: '#fef9ec', color: '#92400e', border: '1px solid #f3dca0' }}>
                   <p className="font-600 mb-1">{fill(ct.cart.blocked, { code: currency.code })}</p>
                   <ul className="list-disc pl-4">
