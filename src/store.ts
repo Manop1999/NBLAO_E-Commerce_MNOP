@@ -18,6 +18,7 @@ import {
 } from "./brands"
 import { Product, PRODUCTS } from "./data"
 import { useCatalog } from "./catalog/CatalogProvider"
+import { CATALOG_SOURCE } from "./catalog/source"
 import { applyDemoDefaults, ensureProductLists } from "./lib/demoProducts"
 import {
   Advertisement,
@@ -351,8 +352,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const updateQty = (id: number, qty: number, variantId?: string) => {
     if (qty < 1) return removeFromCart(id, variantId)
+    const safeQty = Number.isFinite(qty) ? Math.floor(qty) : 1
     setCart((p) =>
-      p.map((c) => (sameLine(c, id, variantId) ? { ...c, qty: Math.min(qty, c.stock) } : c)),
+      p.map((c) => (sameLine(c, id, variantId)
+        ? { ...c, qty: CATALOG_SOURCE === "api" ? Math.max(1, Math.min(safeQty, 999_999)) : Math.min(safeQty, c.stock) }
+        : c)),
     )
   }
 

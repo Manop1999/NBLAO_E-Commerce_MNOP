@@ -127,7 +127,7 @@ export default function Cart() {
                     <div className="rounded-md overflow-hidden flex items-center" style={{ border: '1px solid var(--nb-border)' }}>
                       <button onClick={() => updateQty(item.id, item.qty - 1, item.variantId)} className="rounded-sm px-2.5 py-2 hover:bg-slate-50 transition-colors"><MinusIcon /></button>
                       <span className="font-ui text-[13px] font-600 px-3" style={{ color: NAVY }}>{item.qty}</span>
-                      <button onClick={() => updateQty(item.id, item.qty + 1, item.variantId)} className="rounded-sm px-2.5 py-2 hover:bg-slate-50 transition-colors" disabled={item.qty >= item.stock}><PlusIcon /></button>
+                      <button onClick={() => updateQty(item.id, item.qty + 1, item.variantId)} className="rounded-sm px-2.5 py-2 hover:bg-slate-50 transition-colors" disabled={CATALOG_SOURCE !== 'api' && item.qty >= item.stock}><PlusIcon /></button>
                     </div>
                   </div>
                   <div className="text-center">
@@ -159,7 +159,7 @@ export default function Cart() {
                         <div className="rounded-md overflow-hidden flex items-center" style={{ border: '1px solid var(--nb-border)' }}>
                           <button onClick={() => updateQty(item.id, item.qty - 1, item.variantId)} className="rounded-sm px-2 py-1 hover:bg-slate-50 transition-colors"><MinusIcon /></button>
                           <span className="font-ui text-[11px] font-600 px-2" style={{ color: NAVY }}>{item.qty}</span>
-                          <button onClick={() => updateQty(item.id, item.qty + 1, item.variantId)} className="rounded-sm px-2 py-1 hover:bg-slate-50 transition-colors" disabled={item.qty >= item.stock}><PlusIcon /></button>
+                          <button onClick={() => updateQty(item.id, item.qty + 1, item.variantId)} className="rounded-sm px-2 py-1 hover:bg-slate-50 transition-colors" disabled={CATALOG_SOURCE !== 'api' && item.qty >= item.stock}><PlusIcon /></button>
                         </div>
                         <span className="font-display font-700 text-[13px]" style={{ color: NAVY }}>{lineTotal(item.id, item.variantId)}</span>
                       </div>
