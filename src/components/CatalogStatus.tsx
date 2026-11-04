@@ -1,5 +1,15 @@
 import type { ReactNode } from 'react'
-import { useCatalog } from '../catalog/CatalogProvider'
+import { useCatalog, type CatalogState } from '../catalog/CatalogProvider'
+
+export type CatalogNoticeKind = 'loading' | 'error' | 'empty'
+
+/** Which notice replaces the product list, or null when products can be shown (always in demo mode). */
+export function catalogNoticeKind(catalog: CatalogState): CatalogNoticeKind | null {
+  if (catalog.source !== 'api') return null
+  if (catalog.status === 'loading') return 'loading'
+  if (catalog.status === 'error') return 'error'
+  return catalog.catalog?.products.length ? null : 'empty'
+}
 
 const NAVY = 'var(--nb-navy)'
 const BLUE = 'var(--nb-primary)'
@@ -20,11 +30,12 @@ function Panel({ title, body, action }: { title: string; body: string; action?: 
  */
 export function useCatalogNotice(): ReactNode | null {
   const catalog = useCatalog()
-  if (catalog.source !== 'api') return null
-  if (catalog.status === 'loading') {
+  const kind = catalogNoticeKind(catalog)
+  if (kind === null || catalog.source !== 'api') return null
+  if (kind === 'loading') {
     return <Panel title="Loading products…" body="Fetching the latest catalog." />
   }
-  if (catalog.status === 'error') {
+  if (kind === 'error') {
     return (
       <Panel
         title="Products could not be loaded"
@@ -37,8 +48,5 @@ export function useCatalogNotice(): ReactNode | null {
       />
     )
   }
-  if (!catalog.catalog?.products.length) {
-    return <Panel title="No products available" body="The catalog does not contain any published products yet." />
-  }
-  return null
+  return <Panel title="No products available" body="The catalog does not contain any published products yet." />
 }

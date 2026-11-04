@@ -176,7 +176,8 @@ export default function Cart() {
             <div className="px-6 py-4 flex items-center justify-between" style={{ background: 'var(--nb-surface)', borderTop: '1px solid var(--nb-bg)' }}>
               <p className="font-ui text-[12px]" style={{ color: 'var(--nb-text-secondary)' }}>{t.cart.order_summary}</p>
               <button onClick={() => {
-                cart.forEach(item => addToRFQ({ id: item.id, name: item.name, sku: item.sku, img: item.img, category: item.category, variantId: item.variantId, variantLabel: item.variantLabel } as any, item.qty))
+                // Every saved line is kept, including lines without a chosen variant; the RFQ page asks for it.
+                cart.forEach(item => addToRFQ({ id: item.id, name: item.name, sku: item.sku, img: item.img, category: item.category, variantId: item.variantId, variantLabel: item.variantLabel }, item.qty, { keepWithoutVariant: true }))
                 addToast(t.cart.convert_rfq, 'success')
                 navigate('/rfq')
               }}
@@ -197,8 +198,15 @@ export default function Cart() {
                   <span className="font-ui text-[13px] font-600" style={{ color: NAVY }}>{CATALOG_SOURCE === 'api' ? 'Availability on request' : fmt(cartQuote.subtotalMinor)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="font-ui text-[13px]" style={{ color: 'var(--nb-text-secondary)' }}>{t.checkout.shipping_fee}</span>
-                  <span className="font-ui text-[13px]" style={{ color: 'var(--nb-text-secondary)' }}>{t.cart.shipping_note}</span>
+                  {CATALOG_SOURCE === 'api' ? (
+                    // No online checkout in API mode, so nothing is "calculated at checkout".
+                    <span className="font-ui text-[13px]" style={{ color: 'var(--nb-text-secondary)' }}>Shipping and payment will be confirmed with your quotation.</span>
+                  ) : (
+                    <>
+                      <span className="font-ui text-[13px]" style={{ color: 'var(--nb-text-secondary)' }}>{t.checkout.shipping_fee}</span>
+                      <span className="font-ui text-[13px]" style={{ color: 'var(--nb-text-secondary)' }}>{t.cart.shipping_note}</span>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -238,7 +246,10 @@ export default function Cart() {
 
             {/* Trust badges */}
             <div className="rounded-lg mt-4 bg-white p-5" style={{ border: '1px solid var(--nb-border)' }}>
-              {['Secure payment processing', 'ISO-certified products', 'Technical support included', 'After-sales service'].map(t => (
+              {(CATALOG_SOURCE === 'api'
+                ? ['ISO-certified products', 'Technical support included', 'After-sales service']
+                : ['Secure payment processing', 'ISO-certified products', 'Technical support included', 'After-sales service']
+              ).map(t => (
                 <div key={t} className="flex items-center gap-2.5 py-2">
                   <div className="w-1.5 h-1.5 shrink-0" style={{ background: GOLD }} />
                   <span className="font-ui text-[12px]" style={{ color: 'var(--nb-text-secondary)' }}>{t}</span>

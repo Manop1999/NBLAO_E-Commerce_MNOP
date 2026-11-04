@@ -40,25 +40,44 @@ function ApiCatalogProvider({ children, repository: injected }: { children: Reac
     const controller = new AbortController()
     setStatus('loading')
     setError(null)
-    Promise.all([repository.listAllProducts(controller.signal), repository.listBrands(controller.signal)])
-      .then(([products, brands]) => {
-        if (controller.signal.aborted) return
-        const mapped = mapCatalog(products, brands)
-        if (mapped.skipped > 0) console.warn(`[catalog] ${mapped.skipped} API product(s) skipped (no legacy id or unsafe price)`)
-        setCatalog(mapped)
-        setStatus('ready')
-      })
-      .catch((reason: unknown) => {
-        if (controller.signal.aborted) return
-        setCatalog(null)
-        setError(reason instanceof CatalogLoadError ? reason : new CatalogLoadError('network', 'The catalog could not be loaded'))
-        setStatus('error')
-      })
+    loadStorefrontCatalog(repository, controller.signal).then(result => {
+      if (controller.signal.aborted) return
+      setCatalog(result.status === 'ready' ? result.catalog : null)
+      setError(result.status === 'error' ? result.error : null)
+      setStatus(result.status)
+    })
     return () => controller.abort()
   }, [repository, attempt])
 
   const retry = useCallback(() => setAttempt(n => n + 1), [])
   const value = useMemo<CatalogState>(() => ({ source: 'api', status, catalog, error, retry }), [status, catalog, error, retry])
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>
+}
+
+export type CatalogLoadResult =
+  | { status: 'ready'; catalog: StorefrontCatalog }
+  | { status: 'error'; error: CatalogLoadError }
+
+/**
+ * One load of the storefront catalog. Never rejects: a successful response is `ready` (an empty catalog
+ * included), any failure is `error`. Exported so the outcome can be tested without React.
+ */
+export async function loadStorefrontCatalog(repository: CatalogRepository, signal?: AbortSignal): Promise<CatalogLoadResult> {
+  try {
+    const [products, brands] = await Promise.all([repository.listAllProducts(signal), repository.listBrands(signal)])
+    const catalog = mapCatalog(products, brands)
+    if (catalog.skipped > 0) console.warn(`[catalog] ${catalog.skipped} API product(s) skipped (no legacy id or unsafe price)`)
+    return { status: 'ready', catalog }
+  } catch (reason) {
+    return {
+      status: 'error',
+      error: reason instanceof CatalogLoadError ? reason : new CatalogLoadError('network', 'The catalog could not be loaded'),
+    }
+  }
+}
+
+/** Supplies a fixed catalog state (tests and previews). */
+export function CatalogStateProvider({ value, children }: { value: CatalogState; children: ReactNode }) {
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
 

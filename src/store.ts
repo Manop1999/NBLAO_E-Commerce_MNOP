@@ -1,5 +1,6 @@
 import { normalizeProduct } from "./lib/productNormalize"
 import { hasVariants } from "./lib/variants"
+import { applyRfqVariant, quotableVariants } from "./lib/rfqLines"
 import { type Lang, normalizeLang, DEFAULT_LANG, LANG_STORAGE_KEY, HTML_LANG } from "./lib/language"
 import {
   createContext,
@@ -101,7 +102,11 @@ interface StoreCtx {
   clearCart: () => void
   toggleWishlist: (id: number) => void
   toggleCompare: (id: number) => void
-  addToRFQ: (item: Omit<RFQItem, "qty">, qty?: number) => void
+  /** `keepWithoutVariant`: store a line for a variant product even though no variant is chosen yet (saved cart
+   * lines converted to an RFQ); the RFQ page then asks the customer to choose one. */
+  addToRFQ: (item: Omit<RFQItem, "qty">, qty?: number, options?: { keepWithoutVariant?: boolean }) => void
+  /** Chooses the variant for a variant-less RFQ line, keeping its quantity. */
+  setRFQVariant: (id: number, variantId: string, qty: number) => void
   removeFromRFQ: (id: number, variantId?: string) => void
   updateRFQQty: (id: number, qty: number, variantId?: string) => void
   clearRFQ: () => void
@@ -376,9 +381,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           : p,
     )
 
-  const addToRFQ = (item: Omit<RFQItem, "qty">, qty = 1) => {
+  const addToRFQ = (item: Omit<RFQItem, "qty">, qty = 1, options?: { keepWithoutVariant?: boolean }) => {
     const src = lookupProducts.find((p) => p.id === item.id)
-    if (!item.variantId && src && hasVariants(src)) {
+    if (!item.variantId && src && hasVariants(src) && !options?.keepWithoutVariant) {
       window.dispatchEvent(new CustomEvent("nblao:variant-required", { detail: { id: item.id } }))
       return
     }
@@ -388,6 +393,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return prev.map((r) => (r === existing ? { ...r, qty: r.qty + qty } : r))
       return [...prev, { ...item, qty }]
     })
+  }
+
+  const setRFQVariant = (id: number, variantId: string, qty: number) => {
+    const src = lookupProducts.find((p) => p.id === id)
+    const variant = src && quotableVariants(src).find((v) => v.id === variantId)
+    if (!src || !variant) return
+    setRFQItems((prev) => applyRfqVariant(prev, id, src, variant, Math.max(1, Math.floor(qty))))
   }
 
   const removeFromRFQ = (id: number, variantId?: string) =>
@@ -535,6 +547,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         toggleWishlist,
         toggleCompare,
         addToRFQ,
+        setRFQVariant,
         removeFromRFQ,
         updateRFQQty,
         clearRFQ,
