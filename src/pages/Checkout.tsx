@@ -9,6 +9,7 @@ import { useExplain, useIssueText } from '../commerce/ui'
 import { AddressForm, AddressLines, EMPTY_ADDRESS } from '../commerce/AddressForm'
 import { AddressInput, CommerceError, listAddresses, placeOrder, validateAddressInput, Order } from '../commerce/engine'
 import { formatMinor } from '../commerce/money'
+import { CATALOG_SOURCE } from '../catalog/source'
 
 const NAVY = 'var(--nb-navy)'
 const BLUE = 'var(--nb-primary)'
@@ -155,6 +156,20 @@ export default function Checkout() {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  // API catalog has no stock data yet (inventory arrives in Phase 1F): no orders can be placed, and local demo
+  // cart lines must not be priced against a different catalog.
+  if (CATALOG_SOURCE === 'api' && step < 3) {
+    return (
+      <div className="py-24 px-6 text-center">
+        <h2 className="font-display font-700 text-[28px] mb-3" style={{ color: NAVY }}>Online ordering is not available yet</h2>
+        <p className="font-ui text-[13px] max-w-[480px] mx-auto mb-6" style={{ color: 'var(--nb-text-secondary)' }}>
+          Product availability is confirmed by our sales team. Please send a quote request instead.
+        </p>
+        <Link to="/rfq" className="rounded-md font-ui text-[13px] font-600 px-6 py-3 text-white no-underline" style={{ background: BLUE }}>Request a Quote</Link>
+      </div>
+    )
   }
 
   if (cart.length === 0 && step < 3) {

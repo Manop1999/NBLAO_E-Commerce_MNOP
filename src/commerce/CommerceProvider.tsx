@@ -17,6 +17,8 @@ import {
 import { COMMERCE_KEY, readDb, transact } from "./db"
 import { Currency, formatMinor } from "./money"
 import { Product } from "../data"
+import { CATALOG_SOURCE } from "../catalog/source"
+import { selectPricePlacements } from "./pricingSource"
 import { buildCatalogProducts, catalogEntries } from "./catalogEntries"
 
 const CURRENCY_KEY = "nblao_currency"
@@ -89,10 +91,17 @@ export function CommerceProvider({ children }: { children: ReactNode }) {
   const catalogProduct = (p: Product, variantId?: string) =>
     (catalogEntries(p).find((e) => (e.variantId ?? null) === (variantId ?? null)) ?? catalogEntries(p)[0])
 
+  // API product prices are authoritative. Local Admin sales placements belong to the demo catalog
+  // and must never discount or otherwise rewrite a product coming from the public catalog API.
+  const pricingPlacements = useMemo(
+    () => selectPricePlacements(CATALOG_SOURCE, salesPlacements),
+    [salesPlacements],
+  )
+
   const priceFor = useCallback(
     (product: Product, code?: string, variantId?: string) =>
-      resolvePrice(db, catalogProduct(product, variantId), salesPlacements, code ?? currency.code, new Date()),
-    [db, salesPlacements, currency.code],
+      resolvePrice(db, catalogProduct(product, variantId), pricingPlacements, code ?? currency.code, new Date()),
+    [db, pricingPlacements, currency.code],
   )
 
   const fmt = useCallback(

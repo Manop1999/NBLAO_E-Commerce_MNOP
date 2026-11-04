@@ -7,6 +7,9 @@ import { StockBadge } from "../components/StockBadge"
 import { useToast } from "../components/Toast"
 import type { Product } from "../data"
 import { assetUrl } from "../lib/assetUrl"
+import { CATALOG_SOURCE } from "../catalog/source"
+import { displayStock } from "../lib/stockStatus"
+import { useCatalogNotice } from "../components/CatalogStatus"
 
 const NAVY = "var(--nb-navy)"
 const BLUE = "var(--nb-primary)"
@@ -77,7 +80,7 @@ function SalesProductCard({
             {brand}
           </span>
           <StockBadge
-            stock={product.stock}
+            stock={displayStock(product)}
             size="sm"
           />
         </div>
@@ -110,7 +113,7 @@ function SalesProductCard({
         </div>
         <div className="product-card-actions mt-2 flex h-8 gap-1">
           <button
-            disabled={product.stock <= 0 || !priceFor(product).ok}
+            disabled={CATALOG_SOURCE === "api" || product.stock <= 0 || !priceFor(product).ok}
             onClick={() => {
               addToCart({
                 id: product.id,
@@ -127,7 +130,7 @@ function SalesProductCard({
             className="rounded-sm flex-1 font-ui text-[10px] font-600 text-white disabled:cursor-not-allowed disabled:opacity-50"
             style={{ background: BLUE }}
           >
-            Add to Cart
+            {CATALOG_SOURCE === "api" ? "Quote only" : "Add to Cart"}
           </button>
           <button
             onClick={() => {
@@ -199,7 +202,8 @@ function ProductSection({
 
 export default function Sales() {
   const { products, salesPlacements } = useStore()
-  const active = salesPlacements
+  const catalogNotice = useCatalogNotice()
+  const active = (CATALOG_SOURCE === "api" ? [] : salesPlacements)
     .filter(
       (item) =>
         isActiveNow(item) &&
@@ -249,7 +253,7 @@ export default function Sales() {
         </div>
       </div>
       <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-12">
-        {hasContent ? (
+        {catalogNotice ?? (hasContent ? (
           <>
             <ProductSection
               title="Promotional Products"
@@ -294,7 +298,7 @@ export default function Sales() {
               Browse Product Catalogue
             </Link>
           </div>
-        )}
+        ))}
       </div>
     </div>
   )

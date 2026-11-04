@@ -3,6 +3,7 @@ import BrandLogo from "../components/BrandLogo"
 import { Link } from "react-router-dom"
 import { ORDERS, QUOTATIONS } from "../data"
 import { useStore } from "../store"
+import { CATALOG_SOURCE } from "../catalog/source"
 import { StoredOrdersAdmin, PricingAdmin, LoyaltyAdmin } from "../commerce/AdminPanels"
 import BrandManagement from "../components/admin/BrandManagement"
 import ProductManagement from "../components/admin/ProductManagement"
@@ -931,6 +932,11 @@ export default function Admin() {
 
       {/* Main content */}
       <main className="flex-1 lg:ml-56 min-w-0">
+        {/* Prototype notice: this Admin portal has no server-side security yet (Phase 1E). */}
+        <div role="note" className="px-4 lg:px-8 py-2 font-ui text-[11px] leading-snug" style={{ background: "#FEF3C7", color: "#92400E", borderBottom: "1px solid #F3DCA0" }}>
+          Prototype Admin: demo sign-in and data stored only in this browser. Not production-secure.
+          {CATALOG_SOURCE === "api" && " The storefront currently reads products from the catalog API; catalog edits here stay local and do not change it."}
+        </div>
         {/* Top bar */}
         <div
           className="bg-white px-4 lg:px-8 py-3 lg:py-4 flex items-center justify-between sticky top-0 z-30"

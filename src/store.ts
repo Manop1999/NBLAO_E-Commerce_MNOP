@@ -1,5 +1,6 @@
 import { normalizeProduct } from "./lib/productNormalize"
 import { hasVariants } from "./lib/variants"
+import { applyRfqVariant, quotableVariants } from "./lib/rfqLines"
 import { type Lang, normalizeLang, DEFAULT_LANG, LANG_STORAGE_KEY, HTML_LANG } from "./lib/language"
 import {
   createContext,
@@ -17,6 +18,8 @@ import {
   sortBrands,
 } from "./brands"
 import { Product, PRODUCTS } from "./data"
+import { useCatalog } from "./catalog/CatalogProvider"
+import { CATALOG_SOURCE } from "./catalog/source"
 import { applyDemoDefaults, ensureProductLists } from "./lib/demoProducts"
 import {
   Advertisement,
@@ -99,7 +102,11 @@ interface StoreCtx {
   clearCart: () => void
   toggleWishlist: (id: number) => void
   toggleCompare: (id: number) => void
-  addToRFQ: (item: Omit<RFQItem, "qty">, qty?: number) => void
+  /** `keepWithoutVariant`: store a line for a variant product even though no variant is chosen yet (saved cart
+   * lines converted to an RFQ); the RFQ page then asks the customer to choose one. */
+  addToRFQ: (item: Omit<RFQItem, "qty">, qty?: number, options?: { keepWithoutVariant?: boolean }) => void
+  /** Chooses the variant for a variant-less RFQ line, keeping its quantity. */
+  setRFQVariant: (id: number, variantId: string, qty: number) => void
   removeFromRFQ: (id: number, variantId?: string) => void
   updateRFQQty: (id: number, qty: number, variantId?: string) => void
   clearRFQ: () => void
@@ -119,9 +126,9 @@ interface StoreCtx {
   saveBrand: (brand: Brand) => void
   toggleBrandStatus: (id: string) => void
   deleteBrand: (id: string) => void
-  /** Active products only (storefront). */
+  /** Active products only (storefront). In API catalog mode: the products loaded from the API, nothing local. */
   products: Product[]
-  /** Every product including inactive ones (admin, commerce engine). */
+  /** Every local product including inactive ones (Admin, commerce engine). Always the local demo catalog. */
   allProducts: Product[]
   saveProduct: (product: Product) => void
   deleteProduct: (id: number) => void
@@ -318,12 +325,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     document.documentElement.lang = HTML_LANG[lang]
   }, [lang])
 
+  // Storefront catalog. Demo mode: the local catalog (bundled demo data plus Admin edits). API mode: only what the
+  // API returned; local demo products are never mixed in, and Admin keeps editing the local catalog.
+  const catalog = useCatalog()
+  const apiCatalog = catalog.source === "api" ? catalog.catalog : null
+  const storefrontProducts = catalog.source === "api" ? (apiCatalog?.products ?? []) : products.filter((p) => p.active !== false)
+  const lookupProducts = catalog.source === "api" ? storefrontProducts : products
+
   const addToCart = (item: Omit<CartItem, "qty">, qty = 1) => {
-    const src = products.find((p) => p.id === item.id)
+    const src = lookupProducts.find((p) => p.id === item.id)
     if (!item.variantId && src && hasVariants(src)) {
       window.dispatchEvent(new CustomEvent("nblao:variant-required", { detail: { id: item.id } }))
       return
     }
+    // No stock data yet (API catalog): purchase is unavailable; customers use Request a Quote instead.
+    if (src?.stockKnown === false) return
     if (item.stock <= 0) return
     window.dispatchEvent(new CustomEvent("nblao:cart-added", { detail: { name: item.name, variantLabel: item.variantLabel } }))
     setCart((prev) => {
@@ -341,8 +357,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const updateQty = (id: number, qty: number, variantId?: string) => {
     if (qty < 1) return removeFromCart(id, variantId)
+    const apiQty = Number.isFinite(qty) ? Math.floor(qty) : 1
     setCart((p) =>
-      p.map((c) => (sameLine(c, id, variantId) ? { ...c, qty: Math.min(qty, c.stock) } : c)),
+      p.map((c) => (sameLine(c, id, variantId)
+        ? { ...c, qty: CATALOG_SOURCE === "api" ? Math.max(1, Math.min(apiQty, 999_999)) : Math.min(qty, c.stock) }
+        : c)),
     )
   }
 
@@ -362,9 +381,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           : p,
     )
 
-  const addToRFQ = (item: Omit<RFQItem, "qty">, qty = 1) => {
-    const src = products.find((p) => p.id === item.id)
-    if (!item.variantId && src && hasVariants(src)) {
+  const addToRFQ = (item: Omit<RFQItem, "qty">, qty = 1, options?: { keepWithoutVariant?: boolean }) => {
+    const src = lookupProducts.find((p) => p.id === item.id)
+    if (!item.variantId && src && hasVariants(src) && !options?.keepWithoutVariant) {
       window.dispatchEvent(new CustomEvent("nblao:variant-required", { detail: { id: item.id } }))
       return
     }
@@ -374,6 +393,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return prev.map((r) => (r === existing ? { ...r, qty: r.qty + qty } : r))
       return [...prev, { ...item, qty }]
     })
+  }
+
+  const setRFQVariant = (id: number, variantId: string, qty: number) => {
+    const src = lookupProducts.find((p) => p.id === id)
+    const variant = src && quotableVariants(src).find((v) => v.id === variantId)
+    if (!src || !variant) return
+    setRFQItems((prev) => applyRfqVariant(prev, id, src, variant, Math.max(1, Math.floor(qty))))
   }
 
   const removeFromRFQ = (id: number, variantId?: string) =>
@@ -412,8 +438,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const cartTotal = cart.reduce((sum, c) => sum + c.price * c.qty, 0)
   const cartCount = cart.reduce((sum, c) => sum + c.qty, 0)
-  const activeBrands = getActiveBrands(brands)
-  const getBrandById = (id: string) => getBrand(brands, id)
+  const activeBrands = catalog.source === "api" ? (apiCatalog?.brands ?? []) : getActiveBrands(brands)
+  const getBrandById = (id: string) => (catalog.source === "api" ? activeBrands.find((brand) => brand.id === id) : getBrand(brands, id))
   const saveBrand = (brand: Brand) =>
     setBrands((prev) => {
       const ordered = sortBrands(prev).filter((item) => item.id !== brand.id)
@@ -521,6 +547,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         toggleWishlist,
         toggleCompare,
         addToRFQ,
+        setRFQVariant,
         removeFromRFQ,
         updateRFQQty,
         clearRFQ,
@@ -540,7 +567,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         saveBrand,
         toggleBrandStatus,
         deleteBrand,
-        products: products.filter((p) => p.active !== false),
+        products: storefrontProducts,
         allProducts: products,
         saveProduct,
         deleteProduct,

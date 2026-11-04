@@ -3,6 +3,7 @@ import { ProductPrice } from '../commerce/ui'
 import { useCommerce } from '../commerce/CommerceProvider'
 import { useStore } from '../store'
 import { StockBadge } from '../components/StockBadge'
+import { displayStock } from '../lib/stockStatus'
 import { useT } from '../i18n'
 import { getBrandName } from '../brands'
 import { assetUrl } from '../lib/assetUrl'
@@ -141,7 +142,7 @@ export default function Compare() {
               <td className="py-3 pr-6 font-ui text-[12px] font-600" style={{ color: NAVY, borderBottom: '1px solid var(--nb-bg)' }}>{t.compare.availability}</td>
               {products.map(p => (
                 <td key={p.id} className="py-3 px-4 text-center" style={{ borderBottom: '1px solid var(--nb-bg)' }}>
-                  <StockBadge stock={p.stock} />
+                  <StockBadge stock={displayStock(p)} />
                 </td>
               ))}
             </tr>
@@ -208,7 +209,7 @@ export default function Compare() {
                         {t.compare.add_to_cart}
                       </button>
                     ) : (
-                      <span className="font-ui text-[12px]" style={{ color: '#94a3b8' }}>{t.common.out_of_stock}</span>
+                      <span className="font-ui text-[12px]" style={{ color: '#94a3b8' }}>{p.stockKnown === false ? 'Quote only' : t.common.out_of_stock}</span>
                     )}
                     <Link
                       to={`/products/${p.id}`}

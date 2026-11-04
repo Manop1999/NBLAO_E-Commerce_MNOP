@@ -1,4 +1,4 @@
-import { defineConfig, type HtmlTagDescriptor, type Plugin } from 'vite'
+import { defineConfig, loadEnv, type HtmlTagDescriptor, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'node:path'
@@ -11,6 +11,15 @@ import siteConfiguration from './.figma/make/site.json'
 export default defineConfig(({ mode }) => {
   // .figma/make/deploy-preview passes `--mode development` for cached-preview builds.
   const emitSourcemaps = mode === 'development'
+
+  // VITE_CATALOG_SOURCE=api is for local development only: the dev server then proxies /api to the local
+  // Fastify server and, unless FIGMA_DEV_SERVER_HOST says otherwise, listens on 127.0.0.1 only, so the local
+  // API is never reachable from the network through the proxy. No API address is compiled into the bundle.
+  const apiCatalog = loadEnv(mode, process.cwd(), 'VITE_').VITE_CATALOG_SOURCE === 'api'
+  const devHost = process.env.FIGMA_DEV_SERVER_HOST || (apiCatalog ? '127.0.0.1' : '0.0.0.0')
+  const apiProxy = apiCatalog
+    ? { '/api': { target: `http://127.0.0.1:${process.env.API_PORT || '3001'}`, changeOrigin: false } }
+    : undefined
 
   return {
     base: '/NBLAO_E-Commerce_MNOP/',
@@ -26,6 +35,7 @@ react(),
       figmaReactRefreshBoundaryFallback(),
       figmaMakeKitPlugin({ storiesGlob: '/src/**/*.stories.{ts,tsx,js,jsx}' }),
       githubPagesSpaFallback(),
+      buildInfo({ catalogSource: apiCatalog ? 'api' : 'demo' }),
     ],
     resolve: {
       // The Figma preview loads optimized dependencies alongside the app entry.
@@ -36,9 +46,10 @@ react(),
       },
     },
     server: {
-      host: process.env.FIGMA_DEV_SERVER_HOST || '0.0.0.0',
+      host: devHost,
       port: parseInt(process.env.PORT || '8443'),
       strictPort: true,
+      proxy: apiProxy,
       watch: {
         ignored: [
           '**/.figma/**',
@@ -399,6 +410,20 @@ function figmaMakeKitPlugin(options: { storiesGlob: string | string[] }): Plugin
  * no redirect). Asset URLs in the shell are absolute under `base`, so they resolve from
  * any nested path.
  */
+/**
+ * Writes dist/build-info.json so scripts/verify-build-output.mjs can refuse to publish a build made for local
+ * API development (VITE_CATALOG_SOURCE=api). Contains no secrets.
+ */
+function buildInfo(info: { catalogSource: 'demo' | 'api' }): Plugin {
+  return {
+    name: 'nblao-build-info',
+    apply: 'build',
+    generateBundle() {
+      this.emitFile({ type: 'asset', fileName: 'build-info.json', source: `${JSON.stringify(info)}\n` })
+    },
+  }
+}
+
 function githubPagesSpaFallback(): Plugin {
   return {
     name: 'github-pages-spa-fallback',

@@ -6,6 +6,7 @@ import { useT } from '../i18n'
 import { getBrandName } from '../brands'
 import { ProductPrice } from '../commerce/ui'
 import { StockBadge } from './StockBadge'
+import { displayStock } from '../lib/stockStatus'
 import { RatingSummary } from './ProductReviews'
 import { getRelatedProducts } from '../lib/related'
 import { assetUrl } from '../lib/assetUrl'
@@ -46,7 +47,7 @@ export default function RelatedProducts({ product }: { product: Product }) {
               <RatingSummary productId={p.id} compact />
               <div className="flex items-center justify-between gap-2 mt-auto pt-1.5">
                 <ProductPrice product={p} size="sm" />
-                <StockBadge stock={p.stock} />
+                <StockBadge stock={displayStock(p)} />
               </div>
             </div>
           </Link>

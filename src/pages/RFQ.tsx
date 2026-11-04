@@ -4,6 +4,8 @@ import { useStore } from '../store'
 import { useT } from '../i18n'
 import { assetUrl } from '../lib/assetUrl'
 import { buildRfqMailto, buildRfqWhatsAppUrl, type RfqHandoffInput } from '../lib/rfqHandoff'
+import { lineNeedsVariant, quotableVariants } from '../lib/rfqLines'
+import { variantLabel } from '../lib/variants'
 
 const NAVY = 'var(--nb-navy)'
 const BLUE = 'var(--nb-primary)'
@@ -70,7 +72,7 @@ function FormGroup({ label, children, required }: { label: string; children: Rea
 
 export default function RFQ() {
   const t = useT()
-  const { rfqItems, addToRFQ, removeFromRFQ, clearRFQ, products, customerService } = useStore()
+  const { rfqItems, addToRFQ, setRFQVariant, removeFromRFQ, clearRFQ, products, customerService } = useStore()
   const [step, setStep] = useState(0)
   const [qtyMap, setQtyMap] = useState<Record<string, number>>({})
   const [addProductId, setAddProductId] = useState('')
@@ -86,6 +88,8 @@ export default function RFQ() {
   const rk = (i: { id: number; variantId?: string }) => `${i.id}:${i.variantId ?? ''}`
   const getQty = (i: { id: number; variantId?: string }) => qtyMap[rk(i)] ?? rfqItems.find(r => rk(r) === rk(i))?.qty ?? 1
   const setQty = (i: { id: number; variantId?: string }, qty: number) => setQtyMap(m => ({ ...m, [rk(i)]: Math.max(1, qty) }))
+  // Lines saved without a required variant (e.g. old carts) block the next step until an option is chosen.
+  const variantsMissing = rfqItems.some(item => lineNeedsVariant(item, products))
 
   const handleAddProduct = () => {
     const p = products.find(prod => prod.id === Number(addProductId))
@@ -97,7 +101,7 @@ export default function RFQ() {
 
   // The prototype cannot transmit an RFQ, so "submit" prepares it for the customer to send by email or WhatsApp.
   // The RFQ list is kept until the customer clears it, so nothing is lost if they leave before sending.
-  const handleSubmit = () => setStep(4)
+  const handleSubmit = () => setStep(variantsMissing ? 0 : 4)
 
   const handoff: RfqHandoffInput = {
     reference: rfqNum,
@@ -183,8 +187,11 @@ export default function RFQ() {
                 <div>
                   {/* Product list */}
                   <div className="mb-6">
-                    {rfqItems.map(item => (
-                      <div key={rk(item)} className="flex items-center gap-4 py-4" style={{ borderBottom: '1px solid var(--nb-bg)' }}>
+                    {rfqItems.map(item => {
+                      const needsVariant = lineNeedsVariant(item, products)
+                      const lineProduct = needsVariant ? products.find(p => p.id === item.id) : undefined
+                      return (
+                      <div key={rk(item)} className="flex flex-wrap items-center gap-4 py-4" style={{ borderBottom: '1px solid var(--nb-bg)' }}>
                         <div className="rounded-md overflow-hidden shrink-0" style={{ width: 64, height: 48, background: 'var(--nb-bg)' }}>
                           <img src={assetUrl(item.img)} alt={item.name} className="w-full h-full object-cover" />
                         </div>
@@ -200,8 +207,26 @@ export default function RFQ() {
                         <button onClick={() => removeFromRFQ(item.id, item.variantId)} className="text-[#94a3b8] hover:text-[#ef4444] transition-colors shrink-0">
                           <TrashIcon />
                         </button>
+                        {/* Full-width row under the line, so the choice stays usable on narrow screens */}
+                        {lineProduct && (
+                          <div className="basis-full">
+                            <p role="alert" className="font-ui text-[11px] font-600 mb-1.5" style={{ color: '#92400E' }}>
+                              Select an option for this product before continuing.
+                            </p>
+                            <select aria-label={`Choose an option for ${item.name}`} value=""
+                              onChange={e => { if (e.target.value) setRFQVariant(item.id, e.target.value, getQty(item)) }}
+                              className="rounded-md w-full max-w-[420px] font-ui text-[12px] px-2.5 py-2 outline-none"
+                              style={{ border: '1px solid #F3DCA0', color: NAVY, background: '#FFFBEB' }}>
+                              <option value="">Choose an option…</option>
+                              {quotableVariants(lineProduct).map(v => (
+                                <option key={v.id} value={v.id}>{variantLabel(lineProduct, v)}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
                       </div>
-                    ))}
+                      )
+                    })}
                   </div>
 
                   {/* Add more products */}
@@ -221,8 +246,12 @@ export default function RFQ() {
                     </button>
                   </div>
 
-                  <div className="flex justify-end">
-                    <button onClick={() => setStep(1)} className="rounded-md font-ui text-[13px] font-600 px-8 py-3 text-white" style={{ background: BLUE }}>
+                  <div className="flex flex-col items-end gap-2">
+                    {variantsMissing && (
+                      <p className="font-ui text-[12px]" style={{ color: '#92400E' }}>Choose options for all products to continue.</p>
+                    )}
+                    <button onClick={() => setStep(1)} disabled={variantsMissing}
+                      className="rounded-md font-ui text-[13px] font-600 px-8 py-3 text-white disabled:opacity-40 disabled:cursor-not-allowed" style={{ background: BLUE }}>
                       Next: Company Info →
                     </button>
                   </div>

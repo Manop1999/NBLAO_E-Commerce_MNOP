@@ -6,6 +6,8 @@ import {
   useLocation,
 } from "react-router-dom"
 import { StoreProvider } from "./store"
+import { CATALOG_SOURCE } from "./catalog/source"
+import { CatalogProvider } from "./catalog/CatalogProvider"
 import { AuthProvider, useAuth } from "./auth"
 import { CommerceProvider } from "./commerce/CommerceProvider"
 import { ToastProvider } from "./components/Toast"
@@ -68,6 +70,7 @@ function RouteTitle() {
 
 export default function App() {
   return (
+    <CatalogProvider>
     <StoreProvider>
       <AuthProvider>
         <CommerceProvider>
@@ -106,9 +109,13 @@ export default function App() {
                       <Route
                         path="/checkout"
                         element={
-                          <ProtectedRoute>
+                          CATALOG_SOURCE === "api" ? (
                             <Checkout />
-                          </ProtectedRoute>
+                          ) : (
+                            <ProtectedRoute>
+                              <Checkout />
+                            </ProtectedRoute>
+                          )
                         }
                       />
                       <Route path="/rfq" element={<RFQ />} />
@@ -159,5 +166,6 @@ export default function App() {
         </CommerceProvider>
       </AuthProvider>
     </StoreProvider>
+    </CatalogProvider>
   )
 }

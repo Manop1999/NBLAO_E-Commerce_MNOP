@@ -6,6 +6,7 @@ import { useCommerce } from '../commerce/CommerceProvider'
 import { useCT, fill } from '../commerce/text'
 import { useIssueText } from '../commerce/ui'
 import { assetUrl } from '../lib/assetUrl'
+import { CATALOG_SOURCE } from '../catalog/source'
 
 const NAVY = 'var(--nb-navy)'
 const BLUE = 'var(--nb-primary)'
@@ -46,8 +47,16 @@ export default function Cart() {
   const issueText = useIssueText()
   const qline = (id: number, variantId?: string) => cartQuote.lines.find((l) => l.productId === id && (l.variantId ?? '') === (variantId ?? ''))
   const nameOf = (id?: number) => cart.find((c) => c.id === id)?.name ?? ''
-  const unit = (id: number, variantId?: string) => { const l = qline(id, variantId); return l && l.price.ok ? fmt(l.unitMinor) : ct.price_unavailable }
-  const lineTotal = (id: number, variantId?: string) => { const l = qline(id, variantId); return l && l.price.ok ? fmt(l.lineTotalMinor) : ct.price_unavailable }
+  const unit = (id: number, variantId?: string) => {
+    if (CATALOG_SOURCE === 'api') return 'Availability on request'
+    const l = qline(id, variantId)
+    return l && l.price.ok ? fmt(l.unitMinor) : ct.price_unavailable
+  }
+  const lineTotal = (id: number, variantId?: string) => {
+    if (CATALOG_SOURCE === 'api') return 'Availability on request'
+    const l = qline(id, variantId)
+    return l && l.price.ok ? fmt(l.lineTotalMinor) : ct.price_unavailable
+  }
 
   if (cart.length === 0) {
     return (
@@ -118,7 +127,7 @@ export default function Cart() {
                     <div className="rounded-md overflow-hidden flex items-center" style={{ border: '1px solid var(--nb-border)' }}>
                       <button onClick={() => updateQty(item.id, item.qty - 1, item.variantId)} className="rounded-sm px-2.5 py-2 hover:bg-slate-50 transition-colors"><MinusIcon /></button>
                       <span className="font-ui text-[13px] font-600 px-3" style={{ color: NAVY }}>{item.qty}</span>
-                      <button onClick={() => updateQty(item.id, item.qty + 1, item.variantId)} className="rounded-sm px-2.5 py-2 hover:bg-slate-50 transition-colors" disabled={item.qty >= item.stock}><PlusIcon /></button>
+                      <button onClick={() => updateQty(item.id, item.qty + 1, item.variantId)} className="rounded-sm px-2.5 py-2 hover:bg-slate-50 transition-colors" disabled={CATALOG_SOURCE !== 'api' && item.qty >= item.stock}><PlusIcon /></button>
                     </div>
                   </div>
                   <div className="text-center">
@@ -150,7 +159,7 @@ export default function Cart() {
                         <div className="rounded-md overflow-hidden flex items-center" style={{ border: '1px solid var(--nb-border)' }}>
                           <button onClick={() => updateQty(item.id, item.qty - 1, item.variantId)} className="rounded-sm px-2 py-1 hover:bg-slate-50 transition-colors"><MinusIcon /></button>
                           <span className="font-ui text-[11px] font-600 px-2" style={{ color: NAVY }}>{item.qty}</span>
-                          <button onClick={() => updateQty(item.id, item.qty + 1, item.variantId)} className="rounded-sm px-2 py-1 hover:bg-slate-50 transition-colors" disabled={item.qty >= item.stock}><PlusIcon /></button>
+                          <button onClick={() => updateQty(item.id, item.qty + 1, item.variantId)} className="rounded-sm px-2 py-1 hover:bg-slate-50 transition-colors" disabled={CATALOG_SOURCE !== 'api' && item.qty >= item.stock}><PlusIcon /></button>
                         </div>
                         <span className="font-display font-700 text-[13px]" style={{ color: NAVY }}>{lineTotal(item.id, item.variantId)}</span>
                       </div>
@@ -167,7 +176,8 @@ export default function Cart() {
             <div className="px-6 py-4 flex items-center justify-between" style={{ background: 'var(--nb-surface)', borderTop: '1px solid var(--nb-bg)' }}>
               <p className="font-ui text-[12px]" style={{ color: 'var(--nb-text-secondary)' }}>{t.cart.order_summary}</p>
               <button onClick={() => {
-                cart.forEach(item => addToRFQ({ id: item.id, name: item.name, sku: item.sku, img: item.img, category: item.category, variantId: item.variantId, variantLabel: item.variantLabel } as any, item.qty))
+                // Every saved line is kept, including lines without a chosen variant; the RFQ page asks for it.
+                cart.forEach(item => addToRFQ({ id: item.id, name: item.name, sku: item.sku, img: item.img, category: item.category, variantId: item.variantId, variantLabel: item.variantLabel }, item.qty, { keepWithoutVariant: true }))
                 addToast(t.cart.convert_rfq, 'success')
                 navigate('/rfq')
               }}
@@ -185,20 +195,27 @@ export default function Cart() {
               <div className="flex flex-col gap-3 mb-5">
                 <div className="flex justify-between">
                   <span className="font-ui text-[13px]" style={{ color: 'var(--nb-text-secondary)' }}>{t.cart.subtotal} ({cart.length} {t.cart.items})</span>
-                  <span className="font-ui text-[13px] font-600" style={{ color: NAVY }}>{fmt(cartQuote.subtotalMinor)}</span>
+                  <span className="font-ui text-[13px] font-600" style={{ color: NAVY }}>{CATALOG_SOURCE === 'api' ? 'Availability on request' : fmt(cartQuote.subtotalMinor)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="font-ui text-[13px]" style={{ color: 'var(--nb-text-secondary)' }}>{t.checkout.shipping_fee}</span>
-                  <span className="font-ui text-[13px]" style={{ color: 'var(--nb-text-secondary)' }}>{t.cart.shipping_note}</span>
+                  {CATALOG_SOURCE === 'api' ? (
+                    // No online checkout in API mode, so nothing is "calculated at checkout".
+                    <span className="font-ui text-[13px]" style={{ color: 'var(--nb-text-secondary)' }}>Shipping and payment will be confirmed with your quotation.</span>
+                  ) : (
+                    <>
+                      <span className="font-ui text-[13px]" style={{ color: 'var(--nb-text-secondary)' }}>{t.checkout.shipping_fee}</span>
+                      <span className="font-ui text-[13px]" style={{ color: 'var(--nb-text-secondary)' }}>{t.cart.shipping_note}</span>
+                    </>
+                  )}
                 </div>
               </div>
 
               <div className="flex justify-between py-4 mb-5" style={{ borderTop: '2px solid var(--nb-border)' }}>
                 <span className="font-display font-700 text-[16px]" style={{ color: NAVY }}>{t.cart.total}</span>
-                <span className="font-display font-700 text-[22px]" style={{ color: NAVY }}>{fmt(cartQuote.subtotalMinor)}</span>
+                <span className="font-display font-700 text-[22px]" style={{ color: NAVY }}>{CATALOG_SOURCE === 'api' ? 'Availability on request' : fmt(cartQuote.subtotalMinor)}</span>
               </div>
 
-              {!cartQuote.valid && (
+              {CATALOG_SOURCE !== 'api' && !cartQuote.valid && (
                 <div role="alert" className="rounded-lg mb-4 p-3 font-ui text-[12px]" style={{ background: '#fef9ec', color: '#92400e', border: '1px solid #f3dca0' }}>
                   <p className="font-600 mb-1">{fill(ct.cart.blocked, { code: currency.code })}</p>
                   <ul className="list-disc pl-4">
@@ -208,7 +225,12 @@ export default function Cart() {
                   </ul>
                 </div>
               )}
-              {cartQuote.valid ? <Link to="/checkout" className="rounded-md flex items-center justify-center gap-2 w-full font-ui text-[13px] font-600 py-3.5 text-white no-underline transition-colors"
+              {CATALOG_SOURCE === 'api' && (
+                <p role="note" className="rounded-lg mb-4 p-3 font-ui text-[12px]" style={{ background: 'var(--nb-bg)', color: 'var(--nb-text-secondary)', border: '1px solid var(--nb-border)' }}>
+                  Online ordering is not available yet. Convert your cart to a quote request instead.
+                </p>
+              )}
+              {cartQuote.valid && CATALOG_SOURCE !== 'api' ? <Link to="/checkout" className="rounded-md flex items-center justify-center gap-2 w-full font-ui text-[13px] font-600 py-3.5 text-white no-underline transition-colors"
                 style={{ background: BLUE }} onMouseEnter={e => (e.currentTarget.style.background = BLUE_H)} onMouseLeave={e => (e.currentTarget.style.background = BLUE)}>
                 {t.cart.checkout} <ArrowRightIcon />
               </Link> : (
@@ -224,7 +246,10 @@ export default function Cart() {
 
             {/* Trust badges */}
             <div className="rounded-lg mt-4 bg-white p-5" style={{ border: '1px solid var(--nb-border)' }}>
-              {['Secure payment processing', 'ISO-certified products', 'Technical support included', 'After-sales service'].map(t => (
+              {(CATALOG_SOURCE === 'api'
+                ? ['ISO-certified products', 'Technical support included', 'After-sales service']
+                : ['Secure payment processing', 'ISO-certified products', 'Technical support included', 'After-sales service']
+              ).map(t => (
                 <div key={t} className="flex items-center gap-2.5 py-2">
                   <div className="w-1.5 h-1.5 shrink-0" style={{ background: GOLD }} />
                   <span className="font-ui text-[12px]" style={{ color: 'var(--nb-text-secondary)' }}>{t}</span>
