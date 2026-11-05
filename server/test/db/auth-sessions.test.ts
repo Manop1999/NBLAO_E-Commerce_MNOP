@@ -1,8 +1,10 @@
 import type { LightMyRequestResponse } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { hashRecoveryCode } from '../../src/auth/recoveryCodes'
+import { createSession } from '../../src/auth/sessions'
 import { hashToken } from '../../src/auth/tokens'
-import { base32Decode, totpAt } from '../../src/auth/totp'
+import { seal } from '../../src/auth/secretBox'
+import { base32Decode, generateTotpSecret, totpAt } from '../../src/auth/totp'
 import { createHarness, PASSWORD, removeStaleFixtures, type Browser } from './authHarness'
 
 const h = createHarness()
@@ -337,16 +339,23 @@ describe('2FA codes are claimed atomically (concurrent requests with the same co
   const hashes = (codes: string[]) => codes.map(code => Buffer.from(hashRecoveryCode(code)).toString('hex')).sort()
   const storedHashes = async (staffId: string) =>
     (await h.prisma.mfaRecoveryCode.findMany({ where: { staffId, usedAt: null } })).map(row => Buffer.from(row.codeHash).toString('hex')).sort()
-  /** Exactly one success; every other answer is a refusal (the claim was lost, or the code was already spent). */
-  const oneWinner = (responses: LightMyRequestResponse[]) => {
+  /**
+   * Exactly one success. Enrolment losers get 409 mfa_code_used, or 401 when the winner had already rotated their
+   * session before their sign-in check ran. Regeneration losers get 409 mfa_code_used, or 400 invalid_code when they
+   * read the account after the winner recorded the step (then the code is a replay). Never another answer.
+   */
+  const oneWinner = (responses: LightMyRequestResponse[], allowed: readonly number[]) => {
     const winners = responses.filter(response => response.statusCode === 200)
     expect(winners).toHaveLength(1)
     for (const loser of responses.filter(response => response.statusCode !== 200)) {
-      expect([400, 401, 409]).toContain(loser.statusCode)
+      expect(allowed).toContain(loser.statusCode)
       if (loser.statusCode === 409) expect(loser.json().error.code).toBe('mfa_code_used')
+      if (loser.statusCode === 400) expect(loser.json().error.code).toBe('invalid_code')
     }
     return winners[0]!
   }
+  const ENROLMENT_LOSERS = [401, 409] as const
+  const REGENERATION_LOSERS = [400, 409] as const
 
   it('first enrolment: only one confirmation succeeds; the stored recovery codes are exactly the winner\'s', async () => {
     const manager = await h.staff('mgr-race-enrol', 'MANAGER')
@@ -355,7 +364,7 @@ describe('2FA codes are claimed atomically (concurrent requests with the same co
     const secret = base32Decode((await agent.post('/api/auth/staff/mfa/enroll/start')).json().manualKey)
     const code = totpAt(secret, h.clock.ms)
     const responses = await Promise.all(Array.from({ length: PARALLEL }, () => agent.post('/api/auth/staff/mfa/enroll/confirm', { code })))
-    const winner = oneWinner(responses)
+    const winner = oneWinner(responses, ENROLMENT_LOSERS)
     const codes = winner.json().recoveryCodes as string[]
     expect(codes).toHaveLength(10)
     expect(await storedHashes(manager.id)).toEqual(hashes(codes))
@@ -375,6 +384,36 @@ describe('2FA codes are claimed atomically (concurrent requests with the same co
     expect((await again.post('/api/auth/staff/mfa/verify', { code: codes[0]! })).json().error.code).toBe('invalid_code')
   })
 
+  it('first enrolment: a confirmation that finds the enrolment already completed by a concurrent request is refused as a lost race, with no writes', async () => {
+    // Deterministic version of the race seen in CI: the losing request's guard read its session (still at
+    // MFA_ENROLLMENT_REQUIRED) before the winner rotated it, but read the account after the winner committed.
+    const manager = await h.staff('mgr-race-late', 'MANAGER')
+    const winner = h.browser()
+    await winner.staffLogin(manager.email)
+    const secret = base32Decode((await winner.post('/api/auth/staff/mfa/enroll/start')).json().manualKey)
+    const code = totpAt(secret, h.clock.ms)
+    const won = await winner.post('/api/auth/staff/mfa/enroll/confirm', { code })
+    expect(won.statusCode).toBe(200)
+    const winnerCodes = hashes(won.json().recoveryCodes as string[])
+    const mfaAfterWinner = await h.prisma.staffMfa.findUniqueOrThrow({ where: { staffId: manager.id } })
+
+    // The loser's view: a still-valid session at the enrolment stage, for an account that is now enrolled.
+    const stale = await createSession(h.prisma, new Date(h.clock.ms), { subject: { subjectType: 'STAFF', staffId: manager.id }, stage: 'MFA_ENROLLMENT_REQUIRED' })
+    const loser = h.browser()
+    loser.jar.set('nblao_staff', stale.token)
+    expect((await loser.refresh('staff')).json().stage).toBe('MFA_ENROLLMENT_REQUIRED')
+    for (const attempt of [code, totpAt(secret, h.clock.ms + 30_000)]) {
+      const lost = await loser.post('/api/auth/staff/mfa/enroll/confirm', { code: attempt })
+      expect(lost.statusCode).toBe(409)
+      expect(lost.json().error.code).toBe('mfa_code_used')
+    }
+
+    // Nothing the winner stored was touched.
+    expect(await storedHashes(manager.id)).toEqual(winnerCodes)
+    expect(await h.prisma.staffMfa.findUniqueOrThrow({ where: { staffId: manager.id } })).toEqual(mfaAfterWinner)
+    expect(await h.prisma.auditEvent.count({ where: { subjectId: manager.id, type: 'mfa_enrollment', outcome: 'denied', details: { path: ['reason'], equals: 'replay_or_changed' } } })).toBe(2)
+  })
+
   it('re-enrolment: only one confirmation of the new authenticator succeeds; its recovery codes stay intact', async () => {
     const admin = await h.staff('admin-race-reenrol', 'ADMIN')
     const { agent, secret: oldSecret } = await h.signedInStaff(admin.email)
@@ -384,7 +423,7 @@ describe('2FA codes are claimed atomically (concurrent requests with the same co
     const newSecret = base32Decode(start.json().manualKey)
     const code = totpAt(newSecret, h.clock.ms)
     const responses = await Promise.all(Array.from({ length: PARALLEL }, () => agent.post('/api/auth/staff/mfa/enroll/confirm', { code })))
-    const winner = oneWinner(responses)
+    const winner = oneWinner(responses, ENROLMENT_LOSERS)
     expect(await storedHashes(admin.id)).toEqual(hashes(winner.json().recoveryCodes as string[]))
     expect(await h.prisma.staffMfa.findUniqueOrThrow({ where: { staffId: admin.id } })).toMatchObject({ pendingSecretCiphertext: null, pendingCreatedAt: null })
     h.advance(30_000)
@@ -393,6 +432,124 @@ describe('2FA codes are claimed atomically (concurrent requests with the same co
     await next.staffLogin(admin.email)
     expect((await next.post('/api/auth/staff/mfa/verify', { code: totpAt(oldSecret!, h.clock.ms) })).json().error.code).toBe('invalid_code')
     expect((await next.post('/api/auth/staff/mfa/verify', { code: totpAt(newSecret, h.clock.ms) })).json()).toMatchObject({ stage: 'FULL', method: 'totp' })
+  })
+
+  it('re-enrolment: a confirmation that finds the new authenticator already activated by a concurrent request is refused as a lost race, with no writes', async () => {
+    // Deterministic version of the same race during re-enrolment: the loser's session (step-up done before the new
+    // authenticator was activated) reads the account after the winner cleared the pending setup.
+    const admin = await h.staff('admin-race-reenrol-late', 'ADMIN')
+    const { agent, secret: oldSecret } = await h.signedInStaff(admin.email)
+    expect((await h.stepUp(agent, oldSecret!)).statusCode).toBe(200)
+    const stepUpAt = new Date(h.clock.ms - 30_000) // stepUp() advances the clock by 30 s after verifying
+    const newSecret = base32Decode((await agent.post('/api/auth/staff/mfa/enroll/start')).json().manualKey)
+    const code = totpAt(newSecret, h.clock.ms)
+    const won = await agent.post('/api/auth/staff/mfa/enroll/confirm', { code })
+    expect(won.statusCode).toBe(200)
+    const winnerCodes = hashes(won.json().recoveryCodes as string[])
+    const mfaAfterWinner = await h.prisma.staffMfa.findUniqueOrThrow({ where: { staffId: admin.id } })
+
+    // The loser's session confirmed 2FA (step-up) against the generation before the winner's activation.
+    const stale = await createSession(h.prisma, new Date(h.clock.ms), { subject: { subjectType: 'STAFF', staffId: admin.id }, stage: 'FULL', mfaVerifiedAt: stepUpAt, mfaGeneration: mfaAfterWinner.generation - 1 })
+    const loser = h.browser()
+    loser.jar.set('nblao_staff', stale.token)
+    expect((await loser.refresh('staff')).json().stage).toBe('FULL')
+    const lost = await loser.post('/api/auth/staff/mfa/enroll/confirm', { code })
+    expect(lost.statusCode).toBe(409)
+    expect(lost.json().error.code).toBe('mfa_code_used')
+    expect(await storedHashes(admin.id)).toEqual(winnerCodes)
+    expect(await h.prisma.staffMfa.findUniqueOrThrow({ where: { staffId: admin.id } })).toEqual(mfaAfterWinner)
+  })
+
+  describe('lost-race detection: generation marker, independent of timestamps', () => {
+    /** Admin re-enrolment won at a known instant; returns the winner's browser, secrets, codes and the instants. */
+    async function wonReenrolment(name: string) {
+      const admin = await h.staff(name, 'ADMIN')
+      const { agent, secret: oldSecret } = await h.signedInStaff(admin.email)
+      expect((await h.stepUp(agent, oldSecret!)).statusCode).toBe(200)
+      const stepUpAt = new Date(h.clock.ms - 30_000) // stepUp() advances the clock by 30 s after verifying
+      const newSecret = base32Decode((await agent.post('/api/auth/staff/mfa/enroll/start')).json().manualKey)
+      const won = await agent.post('/api/auth/staff/mfa/enroll/confirm', { code: totpAt(newSecret, h.clock.ms) })
+      expect(won.statusCode).toBe(200)
+      await agent.refresh('staff') // the session was rotated: pick up its new CSRF token (as a browser would)
+      const mfa = await h.prisma.staffMfa.findUniqueOrThrow({ where: { staffId: admin.id } })
+      return { admin, agent, newSecret, stepUpAt, mfa, winnerCodes: hashes(won.json().recoveryCodes as string[]) }
+    }
+    async function staleSession(staffId: string, mfaVerifiedAt: Date | null, mfaGeneration: number | null) {
+      const stale = await createSession(h.prisma, new Date(h.clock.ms), { subject: { subjectType: 'STAFF', staffId }, stage: 'FULL', mfaVerifiedAt, mfaGeneration })
+      const browser = h.browser()
+      browser.jar.set('nblao_staff', stale.token)
+      expect((await browser.refresh('staff')).statusCode).toBe(200)
+      return browser
+    }
+
+    it('records the generation: first enrolment activates generation 1, re-enrolment 2; the winning session carries it', async () => {
+      const { admin, mfa } = await wonReenrolment('gen-records')
+      expect(mfa.generation).toBe(2)
+      const session = await h.prisma.session.findFirstOrThrow({ where: { staffId: admin.id, revokedAt: null }, orderBy: { createdAt: 'desc' } })
+      expect(session.mfaGeneration).toBe(2)
+    })
+
+    it('1. losing re-enrolment, enabledAt strictly later than the session\'s mfaVerifiedAt: 409 mfa_code_used, nothing written', async () => {
+      const { admin, newSecret, stepUpAt, mfa, winnerCodes } = await wonReenrolment('ts-strict-later')
+      expect(mfa.enabledAt!.getTime()).toBeGreaterThan(stepUpAt.getTime())
+      const loser = await staleSession(admin.id, stepUpAt, mfa.generation - 1)
+      const lost = await loser.post('/api/auth/staff/mfa/enroll/confirm', { code: totpAt(newSecret, h.clock.ms) })
+      expect(lost.statusCode).toBe(409)
+      expect(lost.json().error.code).toBe('mfa_code_used')
+      expect(await storedHashes(admin.id)).toEqual(winnerCodes)
+      expect(await h.prisma.staffMfa.findUniqueOrThrow({ where: { staffId: admin.id } })).toEqual(mfa)
+    })
+
+    it('2. winning session, both timestamps equal: its next re-enrolment is accepted', async () => {
+      const { admin, agent, mfa } = await wonReenrolment('ts-equal-winner')
+      // The winner's rotated session was confirmed at the very instant the authenticator was activated, and against
+      // the generation it activated.
+      const session = await h.prisma.session.findFirstOrThrow({ where: { staffId: admin.id, revokedAt: null }, orderBy: { createdAt: 'desc' } })
+      expect(session.mfaVerifiedAt!.getTime()).toBe(mfa.enabledAt!.getTime())
+      expect(session.mfaGeneration).toBe(mfa.generation)
+      // Same instant (clock not advanced): its step-up is still fresh, so it may re-enrol again straight away.
+      const start = await agent.post('/api/auth/staff/mfa/enroll/start')
+      expect(start.statusCode).toBe(200)
+      const again = base32Decode(start.json().manualKey)
+      const confirmed = await agent.post('/api/auth/staff/mfa/enroll/confirm', { code: totpAt(again, h.clock.ms) })
+      expect(confirmed.statusCode).toBe(200)
+      expect(confirmed.json().recoveryCodes).toHaveLength(10)
+      expect((await h.prisma.staffMfa.findUniqueOrThrow({ where: { staffId: admin.id } })).generation).toBe(mfa.generation + 1)
+    })
+
+    it('3. losing re-enrolment, both timestamps equal (same millisecond): 409 mfa_code_used, nothing written', async () => {
+      const { admin, newSecret, mfa, winnerCodes } = await wonReenrolment('ts-equal-loser')
+      // Same instant as the winner's activation, but confirmed against the previous generation: the generation, not
+      // the clock, identifies the lost race.
+      const loser = await staleSession(admin.id, mfa.enabledAt!, mfa.generation - 1)
+      const lost = await loser.post('/api/auth/staff/mfa/enroll/confirm', { code: totpAt(newSecret, h.clock.ms) })
+      expect(lost.statusCode).toBe(409)
+      expect(lost.json().error.code).toBe('mfa_code_used')
+      expect(await storedHashes(admin.id)).toEqual(winnerCodes)
+      expect(await h.prisma.staffMfa.findUniqueOrThrow({ where: { staffId: admin.id } })).toEqual(mfa)
+    })
+
+    it('4. a session confirmed against the current generation, with nothing pending, is not a lost race: enrollment_not_started', async () => {
+      const { admin, newSecret, mfa } = await wonReenrolment('gen-current-no-pending')
+      const current = await staleSession(admin.id, mfa.enabledAt!, mfa.generation)
+      const response = await current.post('/api/auth/staff/mfa/enroll/confirm', { code: totpAt(newSecret, h.clock.ms) })
+      expect(response.statusCode).toBe(409)
+      expect(response.json().error.code).toBe('enrollment_not_started')
+      expect(await h.prisma.staffMfa.findUniqueOrThrow({ where: { staffId: admin.id } })).toEqual(mfa)
+    })
+
+    it('5. compatibility: an account and session from before generations existed can still re-enrol', async () => {
+      // Account enrolled before the migration (generation 0); session confirmed 2FA before it (no generation recorded).
+      const admin = await h.staff('gen-legacy', 'ADMIN')
+      const oldSecret = generateTotpSecret()
+      await h.prisma.staffMfa.create({ data: { staffId: admin.id, secretCiphertext: seal(Buffer.alloc(32, 42), oldSecret, admin.id), enabledAt: new Date(h.clock.ms - 60 * MIN), generation: 0 } })
+      const legacy = await staleSession(admin.id, new Date(h.clock.ms), null)
+      const start = await legacy.post('/api/auth/staff/mfa/enroll/start')
+      expect(start.statusCode).toBe(200)
+      const confirmed = await legacy.post('/api/auth/staff/mfa/enroll/confirm', { code: totpAt(base32Decode(start.json().manualKey), h.clock.ms) })
+      expect(confirmed.statusCode).toBe(200)
+      expect((await h.prisma.staffMfa.findUniqueOrThrow({ where: { staffId: admin.id } })).generation).toBe(1)
+    })
   })
 
   it('refuses a re-enrolment confirmation once the pending setup has expired', async () => {
@@ -410,7 +567,7 @@ describe('2FA codes are claimed atomically (concurrent requests with the same co
     const before = await storedHashes(admin.id)
     const code = totpAt(secret!, h.clock.ms)
     const responses = await Promise.all(Array.from({ length: PARALLEL }, () => agent.post('/api/auth/staff/mfa/recovery-codes/regenerate', { password: PASSWORD, code })))
-    const winner = oneWinner(responses)
+    const winner = oneWinner(responses, REGENERATION_LOSERS)
     const codes = winner.json().recoveryCodes as string[]
     const after = await storedHashes(admin.id)
     expect(after).toEqual(hashes(codes))

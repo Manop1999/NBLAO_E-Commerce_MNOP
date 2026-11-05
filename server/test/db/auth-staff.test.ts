@@ -397,8 +397,27 @@ describe('local CLI functions', () => {
   it('refuses a second Super Admin, resets Super Admin 2FA and cleans only expired rows', async () => {
     await expect(createFirstSuperAdmin(h.prisma, h.hasher, { email: h.email('cli-sa'), displayName: 'CLI', password: PASSWORD }, new Date(h.clock.ms))).rejects.toThrow(CliRefusal)
     await expect(resetSuperAdminMfa(h.prisma, people.admin!.email, new Date(h.clock.ms))).rejects.toThrow(CliRefusal)
+
+    // A second signed-in session, so the reset has more than one session to end.
+    const sa2Agent = await who('sa2')
+    const second = (await h.signedInStaff(people.sa2!.email, people.sa2!.secret)).agent
+    expect((await sa2Agent.get('/api/auth/staff/session')).statusCode).toBe(200)
+    expect((await second.get('/api/auth/staff/session')).statusCode).toBe(200)
+    expect(await h.prisma.session.count({ where: { staffId: people.sa2!.id, revokedAt: null } })).toBeGreaterThanOrEqual(2)
+
     await resetSuperAdminMfa(h.prisma, people.sa2!.email, new Date(h.clock.ms))
     expect(await h.prisma.staffMfa.count({ where: { staffId: people.sa2!.id } })).toBe(0)
+    expect(await h.prisma.mfaRecoveryCode.count({ where: { staffId: people.sa2!.id } })).toBe(0)
+    // Every session of the account ended in the same transaction, so no session from before the reset can outlive the
+    // deleted 2FA record (and its generation, which restarts at 0 only with a new enrolment after a new sign-in).
+    expect(await h.prisma.session.count({ where: { staffId: people.sa2!.id, revokedAt: null } })).toBe(0)
+    expect(await h.prisma.session.count({ where: { staffId: people.sa2!.id, revokedReason: 'mfa_reset' } })).toBeGreaterThanOrEqual(2)
+    expect((await sa2Agent.get('/api/auth/staff/session')).statusCode).toBe(401)
+    expect((await second.get('/api/auth/staff/session')).statusCode).toBe(401)
+    expect(await h.prisma.auditEvent.count({ where: { subjectId: people.sa2!.id, type: 'mfa_reset', details: { path: ['via'], equals: 'cli' } } })).toBe(1)
+    // The next sign-in must enrol a new authenticator from scratch.
+    const fresh2 = h.browser()
+    expect((await fresh2.staffLogin(people.sa2!.email)).json().stage).toBe('MFA_ENROLLMENT_REQUIRED')
     const auditBefore = await h.prisma.auditEvent.count()
     const result = await cleanupExpired(h.prisma, new Date(h.clock.ms + 400 * 24 * 3600_000))
     expect(result.sessions).toBeGreaterThan(0)

@@ -293,6 +293,9 @@ model StaffMfa {
   // the new device confirms it, so the old device keeps working and 2FA is never switched off in between.
   pendingSecretCiphertext Bytes?    @map("pending_secret_ciphertext")
   pendingCreatedAt        DateTime? @map("pending_created_at")
+  // Incremented (atomically, in the conditional update) each time an authenticator is activated. Sessions record the
+  // generation they confirmed 2FA against; a newer account generation means a concurrent request won (lost race).
+  generation              Int       @default(0)
   createdAt               DateTime  @default(now()) @map("created_at")
   updatedAt               DateTime  @updatedAt @map("updated_at")
 
@@ -358,6 +361,8 @@ model Session {
   customer          Customer?    @relation(fields: [customerId], references: [id], onDelete: Cascade)
   stage             SessionStage @default(FULL)
   mfaVerifiedAt     DateTime?    @map("mfa_verified_at")
+  // staff_mfa.generation this session last confirmed 2FA against (null: never, or before generations existed).
+  mfaGeneration     Int?         @map("mfa_generation")
   mfaFailedAttempts Int          @default(0) @map("mfa_failed_attempts")
   rememberMe        Boolean      @default(false) @map("remember_me")
   createdAt         DateTime     @default(now()) @map("created_at")

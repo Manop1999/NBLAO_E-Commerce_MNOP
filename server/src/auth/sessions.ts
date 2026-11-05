@@ -38,6 +38,8 @@ export interface NewSession {
   stage: SessionStage
   rememberMe?: boolean
   mfaVerifiedAt?: Date | null
+  /** staff_mfa.generation the 2FA confirmation was made against (see sessionMfaGeneration). */
+  mfaGeneration?: number | null
   userAgent?: string | undefined
   /** Rotation keeps the original absolute limit, so rotating never extends a session's lifetime. */
   absoluteExpiresAt?: Date
@@ -66,6 +68,7 @@ export async function createSession(db: Db, now: Date, input: NewSession): Promi
       stage: input.stage,
       rememberMe,
       mfaVerifiedAt: input.mfaVerifiedAt ?? null,
+      mfaGeneration: input.mfaGeneration ?? null,
       createdAt: now,
       lastSeenAt: now,
       idleExpiresAt,
@@ -117,7 +120,7 @@ export async function rotateSession(
   db: Db,
   now: Date,
   session: SessionRow,
-  changes: { stage?: SessionStage; mfaVerifiedAt?: Date | null; reason: string },
+  changes: { stage?: SessionStage; mfaVerifiedAt?: Date | null; mfaGeneration?: number | null; reason: string },
 ): Promise<IssuedSession> {
   await revokeSession(db, now, session.id, changes.reason)
   const subject: SessionSubject =
@@ -127,6 +130,7 @@ export async function rotateSession(
     stage: changes.stage ?? session.stage,
     rememberMe: session.rememberMe,
     mfaVerifiedAt: changes.mfaVerifiedAt === undefined ? session.mfaVerifiedAt : changes.mfaVerifiedAt,
+    mfaGeneration: changes.mfaGeneration === undefined ? session.mfaGeneration : changes.mfaGeneration,
     userAgent: session.userAgent ?? undefined,
     absoluteExpiresAt: session.absoluteExpiresAt,
   })
@@ -144,6 +148,15 @@ export async function revokeAllSessions(db: Db, now: Date, subject: SessionSubje
     data: { revokedAt: now, revokedReason: reason },
   })
   return result.count
+}
+
+/**
+ * The 2FA generation a session confirmed against: its recorded value; 0 for a session that confirmed 2FA before
+ * generations were recorded (accounts enrolled then are at generation 0 too); -1 for a session that never confirmed
+ * 2FA, which is older than any activated authenticator.
+ */
+export function sessionMfaGeneration(session: { mfaGeneration: number | null; mfaVerifiedAt: Date | null }): number {
+  return session.mfaGeneration ?? (session.mfaVerifiedAt ? 0 : -1)
 }
 
 export function isStepUpFresh(session: { mfaVerifiedAt: Date | null }, now: Date): boolean {

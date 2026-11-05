@@ -50,6 +50,19 @@ const touchesCustomers = (queries: CapturedQuery[]) => statements(queries).some(
 const touchesRequests = (queries: CapturedQuery[]) => statements(queries).some(sql => sql.includes('"public"."customer_invitation_requests"'))
 const MIN = 60_000
 
+type AuditItem = { type: string; category: string; outcome: string; actorId: string | null; subjectId: string | null; details: unknown }
+/**
+ * An audit listing of a window from h.freshAuditWindow(), read completely (under the page limit), in which every
+ * event belongs to this run: performed by, or about, an account or customer this run created.
+ */
+async function inWindow(agent: Browser, window: string): Promise<AuditItem[]> {
+  const items = (await agent.get(`/api/admin/audit?${window}`)).json().items as AuditItem[]
+  expect(items.length).toBeLessThan(200)
+  const runIds = new Set([...Object.values(people).map(person => person.id), ...(await h.prisma.customer.findMany({ where: { email: { startsWith: h.run } }, select: { id: true } })).map(row => row.id)])
+  for (const event of items) expect(runIds.has(event.actorId ?? '') || runIds.has(event.subjectId ?? ''), `${event.type} belongs to this run`).toBe(true)
+  return items
+}
+
 beforeAll(async () => {
   await removeStaleFixtures(h.prisma, h.run)
   teamA = await h.team('Req A')
@@ -118,6 +131,9 @@ describe('a Manager cannot tell whether an email is registered', () => {
 
 describe('Admin review', () => {
   it('shows reviewers whether the email exists; issues new emails and refuses existing ones without losing the request', async () => {
+    // Audit events of earlier runs stay (append-only) and every run's clock starts at the same date, so this test's
+    // audit reads use a time window only this run writes to (after the latest audit event in the database).
+    const from = (await h.freshAuditWindow()).toISOString()
     const existing = await h.customer('req-review-existing', { teamId: teamB.id })
     const manager = await who('managerA')
     const newRequest = (await manager.post('/api/admin/customers/invitation-requests', profile(h.email('req-review-new')))).json().request
@@ -158,7 +174,16 @@ describe('Admin review', () => {
     const mine = (await manager.get('/api/admin/customers/invitation-requests')).json().items as { id: string; status: string }[]
     expect(mine.find(item => item.id === newRequest.id)?.status).toBe('PROCESSED')
     expect(mine.find(item => item.id === existingRequest.id)?.status).toBe('PROCESSED')
-    const visible = (await manager.get('/api/admin/audit?limit=200')).json().items as { type: string; category: string }[]
+    const window = `from=${from}&to=${new Date(h.clock.ms + 60_000).toISOString()}&limit=200`
+    const ofThisTest = (items: AuditItem[], type: string) =>
+      items.filter(event => event.type === type && [newRequest.id, existingRequest.id].includes((event.details as { requestId?: string } | null)?.requestId ?? ''))
+    // Super Admin: the window holds this test's three decisions, and only events of this run.
+    const saWindow = await inWindow(await who('sa'), window)
+    expect(ofThisTest(saWindow, 'customer_invitation_request_issued')).toHaveLength(2)
+    expect(ofThisTest(saWindow, 'customer_invitation_request_declined')).toHaveLength(1)
+    // Manager, same window: their own two requests, and no decision (no outcome) at all.
+    const visible = await inWindow(manager, window)
+    expect(ofThisTest(visible, 'customer_invitation_requested')).toHaveLength(2)
     expect(visible.some(event => event.type.startsWith('customer_invitation_request_'))).toBe(false)
     expect(visible.every(event => event.category === 'OPERATIONAL')).toBe(true)
     expect((await manager.post(`/api/admin/customers/invitation-requests/${existingRequest.id}/issue`)).json().error.code).toBe('forbidden')
@@ -288,10 +313,9 @@ describe('fresh 2FA (step-up) for invitation operations', () => {
 
 describe('audit visibility of invitation outcomes', () => {
   it('never shows issuance or decline outcomes to the requesting Manager; Super Admin sees the full history', async () => {
-    // Audit events of earlier runs stay (append-only) and every run's clock starts at the same date, so move this
-    // test to a time window of its own and read only that window.
-    h.advance(Date.UTC(2031, 0, 1) + (Date.now() % 1_000_000_000) - h.clock.ms)
-    const since = new Date(h.clock.ms).toISOString()
+    // Audit events of earlier runs stay (append-only) and every run's clock starts at the same date, so this test reads
+    // a time window only this run writes to (after the latest audit event in the database).
+    const since = (await h.freshAuditWindow()).toISOString()
     const window = `from=${since}&to=${new Date(h.clock.ms + 2 * 60 * MIN).toISOString()}&limit=200`
     const manager = await who('managerA')
     const toIssue = (await manager.post('/api/admin/customers/invitation-requests', profile(h.email('req-audit-issue')))).json().request
@@ -306,24 +330,25 @@ describe('audit visibility of invitation outcomes', () => {
     expect((await h.prisma.auditEvent.findFirstOrThrow({ where: { subjectId: customerId, type: 'customer_invited' } })).category).toBe('SECURITY')
     expect((await h.prisma.auditEvent.findFirstOrThrow({ where: { subjectId: direct, type: 'customer_invited' } })).category).toBe('OPERATIONAL')
 
-    type AuditItem = { type: string; category: string; outcome: string; subjectId: string | null; details: unknown }
+    const ofRequests = (event: AuditItem) => [toIssue.id, toDecline.id].includes((event.details as { requestId?: string } | null)?.requestId ?? '')
     const outcomeOf = (items: AuditItem[]) =>
       items.filter(event =>
         ['customer_invited', 'customer_invitation_request_issued', 'customer_invitation_request_declined'].includes(event.type) &&
-        (event.subjectId === customerId || [toIssue.id, toDecline.id].includes((event.details as { requestId?: string } | null)?.requestId ?? '')),
+        (event.subjectId === customerId || ofRequests(event)),
       )
+    const requestsOf = (items: AuditItem[]) => items.filter(event => event.type === 'customer_invitation_requested' && ofRequests(event))
 
     // Manager: nothing about the outcome, even when asking for the (in-team) customer directly; SECURITY is refused.
-    const managerEvents = (await manager.get(`/api/admin/audit?${window}`)).json().items
+    const managerEvents = await inWindow(manager, window)
     expect(outcomeOf(managerEvents)).toEqual([])
-    expect(managerEvents.every((event: { category: string }) => event.category === 'OPERATIONAL')).toBe(true)
+    expect(managerEvents.every(event => event.category === 'OPERATIONAL')).toBe(true)
     expect((await manager.get(`/api/admin/audit?subjectId=${customerId}&limit=200`)).json().items).toEqual([])
     expect((await manager.get('/api/admin/audit?category=SECURITY')).json().error.code).toBe('forbidden')
-    // The Manager still sees their own request events (no outcome in them).
-    expect(managerEvents.filter((event: { type: string }) => event.type === 'customer_invitation_requested').length).toBeGreaterThanOrEqual(2)
+    // The Manager still sees their own two request events of this test (no outcome in them).
+    expect(requestsOf(managerEvents)).toHaveLength(2)
 
     // Super Admin: the complete history of both decisions.
-    const saEvents = (await (await who('sa')).get(`/api/admin/audit?${window}`)).json().items
+    const saEvents = await inWindow(await who('sa'), window)
     expect(outcomeOf(saEvents).map(event => [event.type, event.category, event.outcome]).sort()).toEqual([
       ['customer_invitation_request_declined', 'SECURITY', 'success'],
       ['customer_invitation_request_issued', 'SECURITY', 'success'],
@@ -332,8 +357,8 @@ describe('audit visibility of invitation outcomes', () => {
 
     // Admin: sees the Managers' request events, but — by the existing rule that only Super Admins see events
     // performed by Admin or Super Admin accounts — not the decisions an Admin made.
-    const adminEvents = (await admin.get(`/api/admin/audit?${window}`)).json().items
-    expect(adminEvents.filter((event: { type: string }) => event.type === 'customer_invitation_requested').length).toBeGreaterThanOrEqual(2)
+    const adminEvents = await inWindow(admin, window)
+    expect(requestsOf(adminEvents)).toHaveLength(2)
     expect(outcomeOf(adminEvents)).toEqual([])
   })
 })

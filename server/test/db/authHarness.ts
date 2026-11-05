@@ -58,6 +58,17 @@ export function createHarness(options: { rateLimits?: boolean; captureQueries?: 
   const advance = (ms: number) => {
     clock.ms += ms
   }
+  /**
+   * Moves the clock (forward only) to a time window no earlier audit event reaches: one minute after the latest event
+   * in the database. Audit rows are append-only and every run starts at the same instant, so time alone never
+   * separates runs; this does, because DB test files run one at a time (fileParallelism: false) and only this run
+   * writes from here on. Returns the start of the window.
+   */
+  async function freshAuditWindow(): Promise<Date> {
+    const latest = (await prisma.auditEvent.aggregate({ _max: { at: true } }))._max.at
+    clock.ms = Math.max(clock.ms, (latest?.getTime() ?? 0) + 60_000)
+    return new Date(clock.ms)
+  }
 
   async function team(name: string) {
     return prisma.team.create({ data: { name: `${run} ${name}` } })
@@ -192,7 +203,7 @@ export function createHarness(options: { rateLimits?: boolean; captureQueries?: 
     await prisma.$disconnect()
   }
 
-  return { app, prisma: prisma as PrismaClient, queries, run, clock, logs, hasher, email, staffEmail, advance, team, staff, customer, browser, enrol, signedInStaff, stepUp, cleanup }
+  return { app, prisma: prisma as PrismaClient, queries, run, clock, logs, hasher, email, staffEmail, advance, freshAuditWindow, team, staff, customer, browser, enrol, signedInStaff, stepUp, cleanup }
 }
 
 /**

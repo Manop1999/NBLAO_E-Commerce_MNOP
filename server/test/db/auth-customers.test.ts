@@ -31,6 +31,22 @@ const listIds = async (agent: Browser, query = '') => {
 }
 const auditFor = (subjectId: string, type: string) => h.prisma.auditEvent.findMany({ where: { subjectId, type }, orderBy: { at: 'asc' } })
 
+type AuditItem = { type: string; category: string; teamId: string | null; actorId: string | null; subjectId: string | null }
+/**
+ * Reads an audit listing of a window opened with h.freshAuditWindow() (after the latest audit event in the database,
+ * so only this run writes to it): completely (under the page limit), and checks that every event belongs to this run,
+ * i.e. was performed by or is about an account or customer this run created.
+ */
+async function readWindow(agent: Browser, query: string, label: string): Promise<{ items: AuditItem[]; body: string }> {
+  const response = await agent.get(`/api/admin/audit?${query}`)
+  expect(response.statusCode, label).toBe(200)
+  const items = response.json().items as AuditItem[]
+  expect(items.length, `${label}: the whole window was read`).toBeLessThan(200)
+  const runIds = new Set([...Object.values(people).map(person => person.id), ...(await h.prisma.customer.findMany({ where: { email: { startsWith: h.run } }, select: { id: true } })).map(row => row.id)])
+  for (const event of items) expect(runIds.has(event.actorId ?? '') || runIds.has(event.subjectId ?? ''), `${label}: ${event.type} belongs to this run`).toBe(true)
+  return { items, body: response.body }
+}
+
 beforeAll(async () => {
   await removeStaleFixtures(h.prisma, h.run)
   teamA = await h.team('Team A')
@@ -355,17 +371,72 @@ describe('customer password reset links', () => {
 
 describe('audit log access', () => {
   it('gives Managers read-only operational events of their team; security events need Admin', async () => {
-    const managerView = await (await who('managerA')).get('/api/admin/audit?limit=200')
-    expect(managerView.statusCode).toBe(200)
-    const events = managerView.json().items as { category: string; teamId: string | null }[]
-    expect(events.length).toBeGreaterThan(0)
-    expect(events.every(event => event.category === 'OPERATIONAL' && (event.teamId === teamA.id || event.teamId === null))).toBe(true)
+    // A window only this run writes to (never the global newest page), holding every kind of event a Manager's view
+    // must include or exclude.
+    const from = (await h.freshAuditWindow()).toISOString()
+    const ownTeam = await h.customer('audit-scope-a', { teamId: teamA.id })
+    const colleagueTeam = await h.customer('audit-scope-a2', { teamId: teamA.id })
+    const otherTeam = await h.customer('audit-scope-b', { teamId: teamB.id })
+    // OPERATIONAL, team A: the Manager's own approval and a team-A colleague's; each decision follows a step-up
+    // (2FA verification), which is a SECURITY event of that Manager.
+    expect((await (await decider('managerA')).post(`/api/admin/customers/${ownTeam.id}/approve`)).statusCode).toBe(200)
+    expect((await (await decider('managerA2')).post(`/api/admin/customers/${colleagueTeam.id}/approve`)).statusCode).toBe(200)
+    // OPERATIONAL, team B.
+    expect((await (await decider('managerB')).post(`/api/admin/customers/${otherTeam.id}/approve`)).statusCode).toBe(200)
+    // OPERATIONAL, no team: a self-registration (its password must never reach the log).
+    const registrantEmail = h.email('audit-scope-registered')
+    const registration = await h.browser().post('/api/auth/customer/register', { email: registrantEmail, password: PASSWORD, firstName: 'Test', lastName: 'Scope', phone: '+856 20 1111 3333', companyName: 'Example Scope' })
+    expect(registration.statusCode).toBe(202)
+    const registered = await h.prisma.customer.findUniqueOrThrow({ where: { email: registrantEmail } })
+    // OPERATIONAL, no team, performed by an Admin: a direct invitation.
+    const invited = await (await decider('admin')).post('/api/admin/customers/invitations', { email: h.email('audit-scope-invited'), firstName: 'T', lastName: 'Scope', phone: '+856 20 5555 8888', companyName: 'Example' })
+    expect(invited.statusCode).toBe(201)
+    const invitedId = invited.json().customer.id as string
+    const window = `from=${from}&to=${new Date(h.clock.ms + 60_000).toISOString()}&limit=200`
+    const approved = (items: AuditItem[], customerId: string, actorId: string) => items.some(event => event.type === 'customer_approved' && event.subjectId === customerId && event.actorId === actorId)
+    const registeredIn = (items: AuditItem[]) => items.some(event => event.type === 'customer_registered' && event.subjectId === registered.id)
+    const privileged = [people.sa!.id, people.admin!.id]
+
+    // Super Admin: the window holds all of it, SECURITY included, so what the Manager does not see below was filtered.
+    const saView = await readWindow(await who('sa'), window, 'sa')
+    expect(approved(saView.items, ownTeam.id, people.managerA!.id)).toBe(true)
+    expect(approved(saView.items, colleagueTeam.id, people.managerA2!.id)).toBe(true)
+    expect(approved(saView.items, otherTeam.id, people.managerB!.id)).toBe(true)
+    expect(registeredIn(saView.items)).toBe(true)
+    expect(saView.items.some(event => event.type === 'customer_invited' && event.subjectId === invitedId && event.actorId === people.admin!.id)).toBe(true)
+    expect(saView.items.some(event => event.category === 'SECURITY' && event.actorId === people.managerA!.id)).toBe(true)
+    // No event of the window carries a password, token, code or secret (the registration had a password).
+    expect(saView.body).not.toContain(PASSWORD)
+    expect(saView.body).not.toMatch(/"(password|token|code|secret)[A-Za-z]*"\s*:/i)
+
+    // Manager A sees the operational events of team A (own and a colleague's) and team-less ones of other staff or
+    // customers...
+    const managerView = await readWindow(await who('managerA'), window, 'managerA')
+    expect(approved(managerView.items, ownTeam.id, people.managerA!.id), 'own approval').toBe(true)
+    expect(approved(managerView.items, colleagueTeam.id, people.managerA2!.id), "team colleague's approval").toBe(true)
+    expect(registeredIn(managerView.items), 'team-less registration').toBe(true)
+    // ...and nothing else: no other team, nothing performed by or about Super Admin or Admin, no SECURITY event (not
+    // even their own step-up), read-only.
+    expect(managerView.items.some(event => event.subjectId === otherTeam.id), 'team B').toBe(false)
+    expect(managerView.items.some(event => event.subjectId === invitedId), "the Admin's invitation").toBe(false)
+    for (const event of managerView.items) {
+      expect(privileged.includes(event.actorId ?? '') || privileged.includes(event.subjectId ?? ''), `managerA sees ${event.type} of a privileged account`).toBe(false)
+    }
+    expect(managerView.items.every(event => event.category === 'OPERATIONAL' && (event.teamId === teamA.id || event.teamId === null))).toBe(true)
+    expect((await (await who('managerA')).get(`/api/admin/audit?${window}&category=SECURITY`)).statusCode).toBe(403)
     expect((await (await who('managerA')).get('/api/admin/audit?category=SECURITY')).statusCode).toBe(403)
-    expect((await (await who('admin')).get('/api/admin/audit?category=SECURITY')).json().items.length).toBeGreaterThan(0)
+
+    // Admin: SECURITY events of other staff (here the Managers' step-ups), none performed by or about privileged accounts.
+    const adminSecurity = await readWindow(await who('admin'), `${window}&category=SECURITY`, 'admin SECURITY')
+    expect(adminSecurity.items.some(event => event.actorId === people.managerA!.id)).toBe(true)
+    expect(adminSecurity.items.every(event => event.category === 'SECURITY')).toBe(true)
+    for (const event of adminSecurity.items) {
+      expect(privileged.includes(event.actorId ?? '') || privileged.includes(event.subjectId ?? ''), `admin sees ${event.type} of a privileged account`).toBe(false)
+    }
+
+    // Sales: no audit access at all.
+    expect((await (await who('salesA')).get(`/api/admin/audit?${window}`)).statusCode).toBe(403)
     expect((await (await who('salesA')).get('/api/admin/audit')).statusCode).toBe(403)
-    const text = (await (await who('sa')).get('/api/admin/audit?limit=200')).body
-    expect(text).not.toContain(PASSWORD)
-    expect(text).not.toMatch(/"(password|token|code|secret)[A-Za-z]*"\s*:/i)
   })
 
   it('never returns Super Admin or Admin staff ids to other staff in the customer list', async () => {
@@ -397,27 +468,71 @@ describe('audit log access', () => {
     for (const id of privileged) {
       expect((await sa.get(`/api/admin/audit?subjectId=${id}&limit=200`)).json().items.length, `SA sees subject ${id}`).toBeGreaterThan(0)
     }
-    const saAll = (await sa.get('/api/admin/audit?limit=200')).json().items as { actorId: string | null }[]
-    expect(saAll.some(event => event.actorId !== null && privileged.includes(event.actorId))).toBe(true)
+    // Audit rows are append-only and every run starts the harness clock at the same instant, so the newest 200
+    // events of the shared test database may belong to other runs. Assertions about specific actors therefore
+    // query customers created in this run (by subjectId) instead of relying on the global newest page.
+    const invitedByAdmin = await h.prisma.customer.findFirstOrThrow({ where: { email: { startsWith: h.run }, invitedById: people.admin!.id } })
+    const approvedByManager = await h.prisma.customer.findFirstOrThrow({ where: { email: { startsWith: h.run }, approvedById: people.managerA!.id } })
+    const saAboutInvitee = (await sa.get(`/api/admin/audit?subjectId=${invitedByAdmin.id}&limit=200`)).json().items as { actorId: string | null }[]
+    expect(saAboutInvitee.some(event => event.actorId === people.admin!.id)).toBe(true)
 
     for (const name of ['admin', 'managerA']) {
       const agent = await who(name)
       for (const id of privileged) expect((await agent.get(`/api/admin/audit?subjectId=${id}&limit=200`)).json().items, `${name} / subject ${id}`).toEqual([])
-      const query = name === 'admin' ? '?limit=200' : '?limit=200&category=OPERATIONAL'
-      const items = (await agent.get(`/api/admin/audit${query}`)).json().items as { actorId: string | null; subjectId: string | null }[]
-      expect(items.length, name).toBeGreaterThan(0)
+    }
+
+    // Unfiltered listings, read from a time window that only this run writes to: it starts after the latest audit
+    // event in the database (never the global newest page, which may hold only other runs' events). The window gets
+    // events of every shape: by and about a Super Admin and an Admin (sign-in again; an Admin's invitation,
+    // team-less) and by a Manager (an approval in team A).
+    const from = (await h.freshAuditWindow()).toISOString()
+    const pending = await h.customer('audit-window', { teamId: teamA.id })
+    const invited = await (await decider('admin')).post('/api/admin/customers/invitations', { email: h.email('audit-window-invited'), firstName: 'T', lastName: 'Window', phone: '+856 20 5555 7777', companyName: 'Example' })
+    expect(invited.statusCode).toBe(201)
+    const invitedId = invited.json().customer.id as string
+    expect((await (await decider('managerA')).post(`/api/admin/customers/${pending.id}/approve`)).statusCode).toBe(200)
+    for (const name of ['sa', 'admin', 'managerA']) await h.signedInStaff(people[name]!.email, people[name]!.secret)
+    // Events ABOUT a privileged account performed by nobody (a wrong password at sign-in): only the subject filter can
+    // hide these, because the actor filter has no actor to match.
+    for (const name of ['sa', 'admin']) expect((await h.browser().staffLogin(people[name]!.email, 'not the right passphrase')).statusCode).toBe(401)
+    const window = `from=${from}&to=${new Date(h.clock.ms + 60_000).toISOString()}&limit=200`
+    // Complete, and every event belongs to this run (see readWindow).
+    const inWindow = async (name: string, extra = '') => (await readWindow(await who(name), `${window}${extra}`, name)).items
+    const approvedInWindow = (items: AuditItem[]) => items.some(event => event.type === 'customer_approved' && event.subjectId === pending.id && event.actorId === people.managerA!.id)
+    // Super Admin: the window does hold events by and about both privileged accounts of this run, so their absence
+    // below is the visibility filter at work, not an empty window.
+    const saWindow = await inWindow('sa')
+    for (const id of privileged) {
+      expect(saWindow.some(event => event.actorId === id), `SA sees actor ${id}`).toBe(true)
+      expect(saWindow.some(event => event.subjectId === id), `SA sees subject ${id}`).toBe(true)
+      expect(saWindow.some(event => event.type === 'staff_login' && event.actorId === null && event.subjectId === id), `SA sees the failed sign-in of ${id}`).toBe(true)
+    }
+    expect(saWindow.some(event => event.type === 'customer_invited' && event.subjectId === invitedId && event.actorId === people.admin!.id)).toBe(true)
+    expect(approvedInWindow(saWindow)).toBe(true)
+    for (const [name, extra] of [['admin', ''], ['managerA', '&category=OPERATIONAL']] as const) {
+      const items = await inWindow(name, extra)
+      expect(approvedInWindow(items), `${name} sees the Manager's approval`).toBe(true)
+      expect(items.some(event => event.subjectId === invitedId), `${name} sees nothing of the Admin's invitation`).toBe(false)
       for (const event of items) {
         expect(privileged.includes(event.actorId ?? ''), `${name} sees actor ${event.actorId}`).toBe(false)
         expect(privileged.includes(event.subjectId ?? ''), `${name} sees subject ${event.subjectId}`).toBe(false)
       }
+      if (name === 'managerA') expect(items.every(event => event.category === 'OPERATIONAL' && (event.teamId === teamA.id || event.teamId === null))).toBe(true)
     }
-    // Events by other staff (here the Manager's own approvals) stay visible to Admin.
-    const adminView = (await (await who('admin')).get('/api/admin/audit?limit=200')).json().items as { actorId: string | null }[]
-    expect(adminView.some(event => event.actorId === people.managerA!.id)).toBe(true)
+
+    const admin = await who('admin')
+    // The Admin's own invitation of a customer (a non-privileged subject) is hidden from Admin: actor filter.
+    const adminAboutInvitee = (await admin.get(`/api/admin/audit?subjectId=${invitedByAdmin.id}&limit=200`)).json().items as { actorId: string | null }[]
+    expect(adminAboutInvitee.filter(event => privileged.includes(event.actorId ?? ''))).toEqual([])
+    // Events by other staff (here the Manager's own approval) stay visible to Admin.
+    const adminAboutApproved = (await admin.get(`/api/admin/audit?subjectId=${approvedByManager.id}&limit=200`)).json().items as { actorId: string | null }[]
+    expect(adminAboutApproved.some(event => event.actorId === people.managerA!.id)).toBe(true)
   })
 
   it('cannot be changed or deleted, even with direct SQL', async () => {
-    const event = await h.prisma.auditEvent.findFirstOrThrow({ where: { type: 'customer_registered' } })
+    // An event of this run (the self-registration above), never another run's record.
+    const registrant = await h.prisma.customer.findUniqueOrThrow({ where: { email: h.email('Self.Reg') } })
+    const event = await h.prisma.auditEvent.findFirstOrThrow({ where: { type: 'customer_registered', subjectId: registrant.id } })
     await expect(h.prisma.auditEvent.update({ where: { id: event.id }, data: { outcome: 'tampered' } })).rejects.toThrow(/append-only/)
     await expect(h.prisma.auditEvent.delete({ where: { id: event.id } })).rejects.toThrow(/append-only/)
     await expect(h.prisma.$executeRawUnsafe('TRUNCATE audit_events')).rejects.toThrow(/append-only/)

@@ -27,6 +27,7 @@ import {
   revokeAllSessions,
   revokeSession,
   rotateSession,
+  sessionMfaGeneration,
   STAFF_SESSION,
 } from './sessions.ts'
 import { csrfTokenFor } from './tokens.ts'
@@ -195,6 +196,13 @@ export function registerStaffAuthRoutes(app: FastifyInstance, ctx: AuthContext, 
     const { staff } = current
     await beginMfaAttempt(current, request, 'mfa_enrollment')
     const mfa = staff.mfa
+    // Lost race: the account's authenticator generation is newer than the one this session confirmed 2FA against (or
+    // the session never confirmed 2FA), so a concurrent confirmation of this same enrolment already activated it. A
+    // genuine confirmation never sees this: a first enrolment finds 2FA not enabled yet, and a re-enrolment was
+    // started from a session confirmed against the current generation (including the session that just activated
+    // it). Compares an atomic counter, never clocks. Answered exactly like a lost atomic claim (409 mfa_code_used,
+    // nothing written), not as an enrolment that was never started.
+    if (mfa?.enabledAt && mfa.generation > sessionMfaGeneration(current.session)) return refuseLostClaim(current, 'mfa_enrollment')
     const reenrolling = Boolean(mfa?.enabledAt)
     const box = reenrolling ? mfa?.pendingSecretCiphertext : mfa?.secretCiphertext
     const pendingFresh = !reenrolling || (mfa?.pendingCreatedAt && now.getTime() - mfa.pendingCreatedAt.getTime() <= PENDING_ENROLMENT_MS)
@@ -206,13 +214,15 @@ export function registerStaffAuthRoutes(app: FastifyInstance, ctx: AuthContext, 
     const codes = generateRecoveryCodes()
     const issued = await claimOrRefuse(current, 'mfa_enrollment', () => ctx.prisma.$transaction(async tx => {
       // Atomic claim, re-checked inside the transaction: the enrolment is still the one this code was checked against
-      // (same secret; a re-enrolment still pending and fresh) and the time step was not used yet. A concurrent request
-      // with the same code loses here, before it can touch recovery codes or sessions.
+      // (same generation and secret; a re-enrolment still pending and fresh) and the time step was not used yet. It
+      // advances the generation, so a concurrent request with the same code loses here (or, if it reads the account
+      // afterwards, in the generation check above), before it can touch recovery codes or sessions.
+      const generation = mfa.generation + 1
       const claimed = await tx.staffMfa.updateMany({
         where: reenrolling
-          ? { staffId: staff.id, enabledAt: { not: null }, pendingSecretCiphertext: { equals: box }, pendingCreatedAt: { gte: new Date(now.getTime() - PENDING_ENROLMENT_MS) } }
-          : { staffId: staff.id, enabledAt: null, secretCiphertext: { equals: box }, OR: [{ lastUsedStep: null }, { lastUsedStep: { lt: step } }] },
-        data: { secretCiphertext: box, enabledAt: now, lastUsedStep: step, pendingSecretCiphertext: null, pendingCreatedAt: null },
+          ? { staffId: staff.id, generation: mfa.generation, enabledAt: { not: null }, pendingSecretCiphertext: { equals: box }, pendingCreatedAt: { gte: new Date(now.getTime() - PENDING_ENROLMENT_MS) } }
+          : { staffId: staff.id, generation: mfa.generation, enabledAt: null, secretCiphertext: { equals: box }, OR: [{ lastUsedStep: null }, { lastUsedStep: { lt: step } }] },
+        data: { secretCiphertext: box, enabledAt: now, lastUsedStep: step, pendingSecretCiphertext: null, pendingCreatedAt: null, generation },
       })
       if (claimed.count !== 1) throw new MfaClaimLost()
       await tx.mfaRecoveryCode.deleteMany({ where: { staffId: staff.id } })
@@ -222,7 +232,7 @@ export function registerStaffAuthRoutes(app: FastifyInstance, ctx: AuthContext, 
       // Other sessions were signed in with the old setup; only this one continues.
       await revokeAllSessions(tx, now, { subjectType: 'STAFF', staffId: staff.id }, 'mfa_enrolled', current.session.id)
       const stage = nextStaffStage({ ...staff, mfa: { enabledAt: now } }, true)
-      const rotated = await rotateSession(tx, now, current.session, { stage, mfaVerifiedAt: now, reason: 'mfa_enrolled' })
+      const rotated = await rotateSession(tx, now, current.session, { stage, mfaVerifiedAt: now, mfaGeneration: generation, reason: 'mfa_enrolled' })
       await recordAudit(tx, {
         at: now,
         category: 'SECURITY',
@@ -269,11 +279,12 @@ export function registerStaffAuthRoutes(app: FastifyInstance, ctx: AuthContext, 
     await clearSource(ctx.prisma, staff.id, request.ip)
 
     if (current.stage === 'FULL') {
-      await ctx.prisma.session.update({ where: { id: current.session.id }, data: { mfaVerifiedAt: now, mfaFailedAttempts: 0 } })
+      // The generation of the authenticator this code was verified against.
+      await ctx.prisma.session.update({ where: { id: current.session.id }, data: { mfaVerifiedAt: now, mfaGeneration: staff.mfa.generation, mfaFailedAttempts: 0 } })
       return { stage: 'FULL', method, recoveryCodesRemaining: remaining }
     }
     const stage = nextStaffStage(staff, true)
-    const issued = await rotateSession(ctx.prisma, now, current.session, { stage, mfaVerifiedAt: now, reason: 'mfa_verified' })
+    const issued = await rotateSession(ctx.prisma, now, current.session, { stage, mfaVerifiedAt: now, mfaGeneration: staff.mfa.generation, reason: 'mfa_verified' })
     setSessionCookie(reply, http, 'STAFF', issued.token, issued.policy)
     return { stage, method, recoveryCodesRemaining: remaining }
   })
@@ -324,10 +335,15 @@ export function registerStaffAuthRoutes(app: FastifyInstance, ctx: AuthContext, 
       return await work()
     } catch (error) {
       if (!(error instanceof MfaClaimLost)) throw error
-      const { staff } = current
-      await audit({ type, outcome: 'denied', actor: { type: 'STAFF', id: staff.id }, subject: { type: 'STAFF', id: staff.id }, details: { reason: 'replay_or_changed' } })
-      throw mfaCodeUsed()
+      return refuseLostClaim(current, type)
     }
+  }
+
+  /** A request that lost to a concurrent one using the same code: audited, answered 409, nothing written. */
+  async function refuseLostClaim(current: StaffRequest, type: string): Promise<never> {
+    const { staff } = current
+    await audit({ type, outcome: 'denied', actor: { type: 'STAFF', id: staff.id }, subject: { type: 'STAFF', id: staff.id }, details: { reason: 'replay_or_changed' } })
+    throw mfaCodeUsed()
   }
 
   /**
