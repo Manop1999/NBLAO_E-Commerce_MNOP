@@ -10,20 +10,23 @@ export interface ApiIssue {
 }
 
 export interface ApiErrorBody {
-  error: { code: string; message: string; issues?: ApiIssue[] }
+  error: { code: string; message: string; issues?: ApiIssue[]; stage?: string }
 }
 
 export class ApiError extends Error {
   readonly statusCode: number
   readonly code: string
   readonly issues: ApiIssue[] | undefined
+  /** Session stage the client must complete first (403 stage_required only). */
+  readonly stage: string | undefined
 
-  constructor(statusCode: number, code: string, message: string, issues?: ApiIssue[]) {
+  constructor(statusCode: number, code: string, message: string, issues?: ApiIssue[], stage?: string) {
     super(message)
     this.name = 'ApiError'
     this.statusCode = statusCode
     this.code = code
     this.issues = issues
+    this.stage = stage
   }
 }
 
@@ -32,7 +35,9 @@ export const invalidQuery = (issues: ApiIssue[]): ApiError => new ApiError(400, 
 export function installErrorHandlers(app: FastifyInstance): void {
   app.setErrorHandler((error: FastifyError | ApiError, request, reply) => {
     if (error instanceof ApiError) {
-      const body: ApiErrorBody = { error: { code: error.code, message: error.message, ...(error.issues ? { issues: error.issues } : {}) } }
+      const body: ApiErrorBody = {
+        error: { code: error.code, message: error.message, ...(error.issues ? { issues: error.issues } : {}), ...(error.stage ? { stage: error.stage } : {}) },
+      }
       return reply.code(error.statusCode).send(body)
     }
     // Client errors raised by Fastify itself (malformed request, unsupported media type, payload too large).

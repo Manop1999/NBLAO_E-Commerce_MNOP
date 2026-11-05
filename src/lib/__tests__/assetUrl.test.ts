@@ -75,7 +75,7 @@ const IMAGE_EXT = 'png|jpe?g|svg|webp|gif|avif|ico'
 const ABSOLUTE_URL = /^(?:[a-z][a-z\d+.-]*:|\/\/)/i
 
 /** Values known to never be public paths (canvas data URLs / blob URLs), keyed by expression. */
-const SAFE_SRC_EXPRESSIONS = new Set(['m.dataUrl'])
+const SAFE_SRC_EXPRESSIONS = new Set(['m.dataUrl', 'qrDataUrl'])
 /** `.src =` right-hand sides known to be blob/data URLs, keyed by `file: expression`. */
 const SAFE_SRC_ASSIGNMENTS = new Set(['src/lib/imageUpload.ts: url'])
 

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { ConfigError, loadConfig } from '../../src/config'
+import { ConfigError, DEFAULT_ALLOWED_ORIGINS, loadConfig } from '../../src/config'
 
 const URL_WITH_SECRET = 'postgresql://nblao_app:s3cret-pw@127.0.0.1:5432/nblao_dev'
-const base = { NODE_ENV: 'development', DATABASE_URL: URL_WITH_SECRET }
+const KEY = Buffer.alloc(32, 7).toString('base64')
+const base = { NODE_ENV: 'development', DATABASE_URL: URL_WITH_SECRET, TOTP_ENCRYPTION_KEY: KEY }
 
 const configError = (env: Record<string, string | undefined>): ConfigError => {
   try {
@@ -23,6 +24,9 @@ describe('loadConfig', () => {
       logLevel: 'info',
       databaseUrl: URL_WITH_SECRET,
       allowedDatabases: undefined,
+      allowedOrigins: [...DEFAULT_ALLOWED_ORIGINS],
+      cookieSecure: false,
+      totpEncryptionKey: Buffer.alloc(32, 7),
     })
   })
 
@@ -35,13 +39,15 @@ describe('loadConfig', () => {
     expect(loadConfig({ ...base, PORT: '', HOST: '' })).toMatchObject({ port: 3001, host: '127.0.0.1' })
   })
 
-  it('requires NODE_ENV and DATABASE_URL', () => {
-    expect(configError({}).issues).toEqual(expect.arrayContaining(['NODE_ENV is required', 'DATABASE_URL is required']))
-    expect(configError({ NODE_ENV: 'development', DATABASE_URL: '   ' }).issues.join()).toMatch(/DATABASE_URL/)
+  it('requires NODE_ENV, DATABASE_URL and TOTP_ENCRYPTION_KEY', () => {
+    expect(configError({}).issues).toEqual(expect.arrayContaining(['NODE_ENV is required', 'DATABASE_URL is required', 'TOTP_ENCRYPTION_KEY is required']))
+    expect(configError({ ...base, DATABASE_URL: '   ' }).issues.join()).toMatch(/DATABASE_URL/)
   })
 
   it('refuses production and other environments', () => {
-    for (const NODE_ENV of ['production', 'staging', 'Development']) {
+    // Production is refused first by the temporary privileged-namespace guard (with the reason), then by the schema.
+    expect(configError({ ...base, NODE_ENV: 'production' }).message).toMatch(/temporary local-development placeholder/)
+    for (const NODE_ENV of ['staging', 'Development']) {
       expect(configError({ ...base, NODE_ENV }).issues.join()).toMatch(/^NODE_ENV:/)
     }
   })
@@ -58,8 +64,37 @@ describe('loadConfig', () => {
   })
 
   it('never includes the database password or URL in error messages', () => {
-    const error = configError({ ...base, NODE_ENV: 'production', PORT: 'x' })
+    const error = configError({ ...base, NODE_ENV: 'staging', PORT: 'x' })
     expect(error.message).not.toContain('s3cret-pw')
     expect(error.message).not.toContain(URL_WITH_SECRET)
+  })
+})
+
+describe('loadConfig: authentication settings', () => {
+  it('accepts only a 32-byte base64 TOTP key and never echoes it', () => {
+    const short = Buffer.alloc(16, 1).toString('base64')
+    const long = Buffer.alloc(33, 1).toString('base64')
+    for (const value of [short, long, 'not base64!', `${KEY}x`]) {
+      const error = configError({ ...base, TOTP_ENCRYPTION_KEY: value })
+      expect(error.issues.join()).toMatch(/^TOTP_ENCRYPTION_KEY:/)
+      expect(error.message).not.toContain(value)
+    }
+  })
+
+  it('reads an exact list of loopback origins', () => {
+    const config = loadConfig({ ...base, ALLOWED_ORIGINS: 'http://127.0.0.1:5174, http://localhost:9000' })
+    expect(config.allowedOrigins).toEqual(['http://127.0.0.1:5174', 'http://localhost:9000'])
+  })
+
+  it('refuses wildcard, remote, path or malformed origins', () => {
+    for (const ALLOWED_ORIGINS of ['*', 'https://example.com', 'http://127.0.0.1:5174/', 'http://127.0.0.1:5174/app', 'http://user@localhost:5174', '127.0.0.1:5174', 'file:///tmp', 'http://192.168.1.2:5174']) {
+      expect(configError({ ...base, ALLOWED_ORIGINS }).issues.join(), ALLOWED_ORIGINS).toMatch(/^ALLOWED_ORIGINS:/)
+    }
+  })
+
+  it('reads COOKIE_SECURE as a strict boolean', () => {
+    expect(loadConfig({ ...base, COOKIE_SECURE: 'true' }).cookieSecure).toBe(true)
+    expect(loadConfig({ ...base, COOKIE_SECURE: 'false' }).cookieSecure).toBe(false)
+    expect(configError({ ...base, COOKIE_SECURE: 'yes' }).issues.join()).toMatch(/^COOKIE_SECURE:/)
   })
 })

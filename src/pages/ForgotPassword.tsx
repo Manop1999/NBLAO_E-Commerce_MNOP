@@ -2,6 +2,8 @@ import { useState } from 'react'
 import BrandLogo from '../components/BrandLogo'
 import { Link } from 'react-router-dom'
 import { useT } from '../i18n'
+import { useAuth } from '../auth'
+import { DEFAULT_CUSTOMER_SERVICE } from '../content'
 
 const NAVY = 'var(--nb-navy)'
 const BLUE = 'var(--nb-primary)'
@@ -10,6 +12,7 @@ const GOLD = 'var(--nb-gold)'
 
 export default function ForgotPassword() {
   const t = useT()
+  const { source } = useAuth()
   const [email, setEmail] = useState('')
   const [loading, setLoading] = useState(false)
   const [submitted, setSubmitted] = useState(false)
@@ -52,7 +55,15 @@ export default function ForgotPassword() {
           </div>
 
           <div className="rounded-lg bg-white p-8" style={{ border: '1px solid var(--nb-border)' }}>
-            {submitted ? (
+            {source === 'api' ? (
+              // Self-service reset emails arrive in Phase 1H; until then NB LAO staff issue a one-time reset link.
+              <div className="font-ui text-[13px] leading-relaxed" style={{ color: 'var(--nb-text-secondary)' }}>
+                <p className="mb-4">To reset your password, contact NB LAO. After checking your identity, our team will give you a one-time reset link that is valid for 60 minutes.</p>
+                <p className="mb-1">Email: <a href={`mailto:${DEFAULT_CUSTOMER_SERVICE.email}`} style={{ color: BLUE }}>{DEFAULT_CUSTOMER_SERVICE.email}</a></p>
+                <p className="mb-6">Phone / WhatsApp: {DEFAULT_CUSTOMER_SERVICE.phone}</p>
+                <Link to="/login" className="font-ui text-[12px] font-600 no-underline hover:underline" style={{ color: BLUE }}>← {t.auth.back_login}</Link>
+              </div>
+            ) : submitted ? (
               <div className="text-center">
                 <div className="rounded-md overflow-hidden w-14 h-14 mx-auto mb-5 flex items-center justify-center" style={{ background: '#ecfdf5', border: '1px solid #bbf7d0' }}>
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none">

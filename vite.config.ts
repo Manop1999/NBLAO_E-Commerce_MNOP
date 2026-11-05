@@ -15,9 +15,14 @@ export default defineConfig(({ mode }) => {
   // VITE_CATALOG_SOURCE=api is for local development only: the dev server then proxies /api to the local
   // Fastify server and, unless FIGMA_DEV_SERVER_HOST says otherwise, listens on 127.0.0.1 only, so the local
   // API is never reachable from the network through the proxy. No API address is compiled into the bundle.
-  const apiCatalog = loadEnv(mode, process.cwd(), 'VITE_').VITE_CATALOG_SOURCE === 'api'
-  const devHost = process.env.FIGMA_DEV_SERVER_HOST || (apiCatalog ? '127.0.0.1' : '0.0.0.0')
-  const apiProxy = apiCatalog
+  // VITE_AUTH_SOURCE=api (Phase 1E) works the same way: sign-in cookies are set by the API on the dev server's
+  // own origin through the proxy, so the browser never talks to the API directly.
+  const viteEnv = loadEnv(mode, process.cwd(), 'VITE_')
+  const apiCatalog = viteEnv.VITE_CATALOG_SOURCE === 'api'
+  const apiAuth = viteEnv.VITE_AUTH_SOURCE === 'api'
+  const usesLocalApi = apiCatalog || apiAuth
+  const devHost = process.env.FIGMA_DEV_SERVER_HOST || (usesLocalApi ? '127.0.0.1' : '0.0.0.0')
+  const apiProxy = usesLocalApi
     ? { '/api': { target: `http://127.0.0.1:${process.env.API_PORT || '3001'}`, changeOrigin: false } }
     : undefined
 
@@ -35,15 +40,17 @@ react(),
       figmaReactRefreshBoundaryFallback(),
       figmaMakeKitPlugin({ storiesGlob: '/src/**/*.stories.{ts,tsx,js,jsx}' }),
       githubPagesSpaFallback(),
-      buildInfo({ catalogSource: apiCatalog ? 'api' : 'demo' }),
+      buildInfo({ catalogSource: apiCatalog ? 'api' : 'demo', authSource: apiAuth ? 'api' : 'demo' }),
     ],
     resolve: {
       // The Figma preview loads optimized dependencies alongside the app entry.
       // Keep Router and ReactDOM on the same React singleton so hooks share one dispatcher.
       dedupe: ['react', 'react-dom'],
-      alias: {
-        '@': path.resolve(__dirname, './src'),
-      },
+      alias: [
+        { find: '@', replacement: path.resolve(__dirname, './src') },
+        // API-mode sign-in builds swap the prototype provider (and its demo credentials) for an empty stand-in.
+        ...(apiAuth ? [{ find: /^\.\/demoAuth$/, replacement: path.resolve(__dirname, './src/auth/demoAuth.disabled.ts') }] : []),
+      ],
     },
     server: {
       host: devHost,
@@ -412,9 +419,9 @@ function figmaMakeKitPlugin(options: { storiesGlob: string | string[] }): Plugin
  */
 /**
  * Writes dist/build-info.json so scripts/verify-build-output.mjs can refuse to publish a build made for local
- * API development (VITE_CATALOG_SOURCE=api). Contains no secrets.
+ * API development (VITE_CATALOG_SOURCE=api or VITE_AUTH_SOURCE=api). Contains no secrets.
  */
-function buildInfo(info: { catalogSource: 'demo' | 'api' }): Plugin {
+function buildInfo(info: { catalogSource: 'demo' | 'api'; authSource: 'demo' | 'api' }): Plugin {
   return {
     name: 'nblao-build-info',
     apply: 'build',

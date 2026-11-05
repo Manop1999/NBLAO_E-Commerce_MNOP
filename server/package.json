@@ -16,13 +16,21 @@
     "db:generate": "prisma generate",
     "db:migrate": "node --env-file-if-exists=.env --import tsx scripts/db.ts migrate",
     "db:seed": "node --env-file-if-exists=.env --import tsx scripts/db.ts seed",
-    "db:reset": "node --env-file-if-exists=.env --import tsx scripts/db.ts reset"
+    "db:reset": "node --env-file-if-exists=.env --import tsx scripts/db.ts reset",
+    "auth:setup-keys": "node --import tsx scripts/auth.ts setup-keys",
+    "auth:create-super-admin": "node --env-file-if-exists=.env --import tsx scripts/auth.ts create-super-admin",
+    "auth:reset-super-admin-mfa": "node --env-file-if-exists=.env --import tsx scripts/auth.ts reset-super-admin-mfa",
+    "auth:cleanup": "node --env-file-if-exists=.env --import tsx scripts/auth.ts cleanup"
   },
   "dependencies": {
+    "@fastify/cookie": "11.1.3",
+    "@fastify/rate-limit": "11.2.1",
+    "@node-rs/argon2": "2.2.2",
     "@prisma/adapter-pg": "7.10.1",
     "@prisma/client": "7.10.1",
     "fastify": "5.12.7",
     "pg": "8.23.1",
+    "qrcode": "1.5.4",
     "zod": "4.6.7"
   },
   "pnpm": {
@@ -35,6 +43,7 @@
   "devDependencies": {
     "@types/node": "22.19.17",
     "@types/pg": "8.23.1",
+    "@types/qrcode": "1.5.6",
     "prisma": "7.10.1",
     "tsx": "4.23.15",
     "typescript": "5.9.3",

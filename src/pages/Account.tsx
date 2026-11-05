@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { useStore } from '../store'
 import { ORDERS, QUOTATIONS } from '../data'
-import { useAuth } from '../auth'
+import { AUTH_SOURCE, useAuth } from '../auth'
+import { AccountStatusBanner, ApiPasswordChange, ApiProfile } from '../account/ApiAccountPanels'
 import { useToast } from '../components/Toast'
 import { ConfirmModal } from '../components/Modal'
 import { getBrandName } from '../brands'
@@ -398,8 +399,9 @@ const CONTENT: Record<string, React.ReactNode> = {
   wishlist: <Wishlist />,
   addresses: <AddressBook />,
   loyalty: <LoyaltyPanel />,
-  profile: <Profile />,
-  password: <PasswordChange />,
+  // API mode: the profile comes from the server session and the password change goes to the server.
+  profile: AUTH_SOURCE === 'api' ? <ApiProfile /> : <Profile />,
+  password: AUTH_SOURCE === 'api' ? <ApiPasswordChange /> : <PasswordChange />,
 }
 
 export default function Account() {
@@ -417,10 +419,11 @@ export default function Account() {
     ...NAV_TABS.slice(4),
   ]
 
-  const handleLogout = () => {
-    logout()
-    addToast('You have been signed out.', 'info')
+  const handleLogout = async () => {
+    // Leave the protected page first, so the route guard does not redirect to sign-in.
     navigate('/')
+    await logout()
+    addToast('You have been signed out.', 'info')
   }
 
   const displayName = user ? `${user.firstName} ${user.lastName}` : 'Account'
@@ -484,6 +487,7 @@ export default function Account() {
 
           {/* Content */}
           <main>
+            {activeTab !== 'profile' && <AccountStatusBanner />}
             {CONTENT[activeTab] || <Dashboard />}
           </main>
         </div>

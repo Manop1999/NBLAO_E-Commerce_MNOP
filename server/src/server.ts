@@ -4,6 +4,7 @@
  * connect or listen.
  */
 import { buildApp } from './app.ts'
+import { PasswordHasher } from './auth/password.ts'
 import { createPrismaCatalogReader } from './catalog/reader.ts'
 import { ConfigError, loadConfig } from './config.ts'
 import { UnsafeDatabaseTargetError } from './db/assertLocalDatabase.ts'
@@ -16,6 +17,10 @@ async function main(): Promise<void> {
     logLevel: config.logLevel,
     checkDatabase: () => pingDatabase(prisma),
     catalog: createPrismaCatalogReader(prisma),
+    auth: {
+      ctx: { prisma, hasher: new PasswordHasher(), totpKey: config.totpEncryptionKey, now: () => new Date() },
+      http: { cookieSecure: config.cookieSecure, allowedOrigins: config.allowedOrigins },
+    },
   })
 
   const shutdown = async (signal: string) => {
