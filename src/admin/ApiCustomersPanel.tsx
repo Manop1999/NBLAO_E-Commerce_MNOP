@@ -4,8 +4,12 @@
  *
  * The server is the only authority: it filters the list to the signed-in staff member's scope (Sales see only
  * their own customers, Managers their team plus unassigned ones), checks every permission again, refuses an
- * approval by the person who sent the invitation, and asks for a fresh 2FA code before issuing a reset link.
- * Buttons are hidden here only for convenience; hiding is never the protection.
+ * approval by the person who sent or requested the invitation, and asks for a fresh 2FA code before status
+ * decisions, invitations, invitation-request decisions and reset links (the same operation is retried after the
+ * confirmation). Buttons are hidden here only for convenience; hiding is never the protection.
+ *
+ * Managers request invitations; Admins and Super Admins review the requests and issue the invitation links. A
+ * request never reveals whether the email already has an account (the requester only sees Submitted/Processed).
  *
  * One-time links are shown once in a dialog, kept in memory only, and excluded from page translation.
  */
@@ -34,7 +38,35 @@ interface AdminCustomer {
   /** Returned to Super Admins only. */
   invitedById?: string | null
   invitedByMe: boolean
+  /** True when the signed-in staff member requested this customer's invitation. */
+  requestedByMe: boolean
   approvedAt: string | null
+}
+
+/** Reviewers see the real status; requesters only SUBMITTED / PROCESSED. */
+type RequestStatus = 'PENDING' | 'ISSUED' | 'DECLINED' | 'SUBMITTED' | 'PROCESSED'
+
+interface InvitationRequestRow {
+  id: string
+  email: string
+  firstName: string
+  lastName: string
+  companyName: string
+  team: { id: string; name: string } | null
+  status: RequestStatus
+  createdAt: string
+  /** Reviewers only. */
+  requestedBy?: { id: string; displayName: string; role: string } | null
+  requestedByMe?: boolean
+  existingCustomer?: { id: string; status: CustomerStatus; team: { id: string; name: string } | null } | null
+}
+
+const REQUEST_LABELS: Record<RequestStatus, string> = {
+  PENDING: 'Awaiting review',
+  ISSUED: 'Invitation issued',
+  DECLINED: 'Declined',
+  SUBMITTED: 'Awaiting review',
+  PROCESSED: 'Processed',
 }
 
 interface CustomerPage {
@@ -162,7 +194,7 @@ function LinkDialog({ link, title, onClose }: { link: IssuedLink | null; title: 
   )
 }
 
-function ReasonDialog({ action, onClose, onSubmit }: { action: { label: string; required: boolean } | null; onClose: () => void; onSubmit: (reason: string) => Promise<void> }) {
+function ReasonDialog({ action, onClose, onSubmit }: { action: { label: string; required: boolean; hint?: string } | null; onClose: () => void; onSubmit: (reason: string) => Promise<void> }) {
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   if (!action) return null
@@ -182,7 +214,7 @@ function ReasonDialog({ action, onClose, onSubmit }: { action: { label: string; 
           Reason {action.required ? '' : '(optional)'}
         </label>
         <textarea id="status-reason" value={reason} onChange={e => setReason(e.target.value)} rows={3} maxLength={500} className={inputClass} style={inputStyle} />
-        <p className="font-ui text-[11px]" style={{ color: '#94a3b8' }}>The reason is saved with the account and in the audit log.</p>
+        <p className="font-ui text-[11px]" style={{ color: '#94a3b8' }}>{action.hint ?? 'The reason is saved with the account and in the audit log.'}</p>
         <button type="submit" disabled={busy || (action.required && !reason.trim())} className="rounded-md font-ui text-[13px] font-600 py-2.5 text-white disabled:opacity-50" style={{ background: BLUE }}>
           {busy ? 'Please wait…' : action.label}
         </button>
@@ -237,28 +269,43 @@ function AssignDialog({ customer, options, onClose, onSave }: { customer: AdminC
 
 const EMPTY_INVITE = { email: '', firstName: '', lastName: '', phone: '', companyName: '', teamId: '' }
 
-function InviteDialog({ open, options, onClose, onInvited }: { open: boolean; options: AssignmentOptions | null; onClose: () => void; onInvited: (link: IssuedLink) => void }) {
+/**
+ * `invite` (Admin, Super Admin): creates the invitation and returns its one-time link.
+ * `request` (Manager): files a request for an Admin to review; the answer is the same whatever the email.
+ */
+function InviteDialog({ open, mode, options, onClose, onInvited, onRequested, onStepUp }: { open: boolean; mode: 'invite' | 'request'; options: AssignmentOptions | null; onClose: () => void; onInvited: (link: IssuedLink) => void; onRequested: () => void; onStepUp: (retry: () => void) => void }) {
   const [form, setForm] = useState(EMPTY_INVITE)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const set = (field: keyof typeof EMPTY_INVITE) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setForm(v => ({ ...v, [field]: e.target.value }))
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault()
+  type InviteBody = { email: string; firstName: string; lastName: string; phone: string; companyName: string; teamId?: string }
+  const send = async (body: InviteBody) => {
     setBusy(true)
     setError('')
     try {
-      const result = await authApi.post<{ link: IssuedLink }>(
-        '/admin/customers/invitations',
-        { email: form.email, firstName: form.firstName, lastName: form.lastName, phone: form.phone, companyName: form.companyName, ...(form.teamId ? { teamId: form.teamId } : {}) },
-        'staff',
-      )
+      if (mode === 'request') {
+        await authApi.post('/admin/customers/invitation-requests', body, 'staff')
+        setForm(EMPTY_INVITE)
+        onRequested()
+        return
+      }
+      const result = await authApi.post<{ link: IssuedLink }>('/admin/customers/invitations', body, 'staff')
       setForm(EMPTY_INVITE)
       onInvited(result.link)
     } catch (err) {
+      // A direct invitation needs a fresh 2FA confirmation; afterwards the exact same invitation is sent again.
+      if (err instanceof ApiRequestError && err.code === 'step_up_required') {
+        onStepUp(() => void send(body))
+        return
+      }
       setError(describeError(err))
     } finally {
       setBusy(false)
     }
+  }
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault()
+    void send({ email: form.email, firstName: form.firstName, lastName: form.lastName, phone: form.phone, companyName: form.companyName, ...(form.teamId ? { teamId: form.teamId } : {}) })
   }
   const field = (id: keyof typeof EMPTY_INVITE, label: string, type = 'text') => (
     <div>
@@ -267,11 +314,17 @@ function InviteDialog({ open, options, onClose, onInvited }: { open: boolean; op
     </div>
   )
   return (
-    <Modal open={open} onClose={onClose} title="Invite a customer" maxWidth={520}>
+    <Modal open={open} onClose={onClose} title={mode === 'request' ? 'Request a customer invitation' : 'Invite a customer'} maxWidth={520}>
       <form onSubmit={submit} className="flex flex-col gap-3">
-        <p className="font-ui text-[12px]" style={{ color: 'var(--nb-text-secondary)' }}>
-          The customer receives a one-time link (valid 72 hours) to choose a password. The account then awaits approval by another authorized staff member — you cannot approve a customer you invited.
-        </p>
+        {mode === 'request' ? (
+          <p className="font-ui text-[12px]" style={{ color: 'var(--nb-text-secondary)' }}>
+            An Admin reviews your request and sends the invitation. The account then awaits approval by another authorized staff member — you cannot approve a customer whose invitation you requested.
+          </p>
+        ) : (
+          <p className="font-ui text-[12px]" style={{ color: 'var(--nb-text-secondary)' }}>
+            The customer receives a one-time link (valid 72 hours) to choose a password. The account then awaits approval by another authorized staff member — you cannot approve a customer you invited.
+          </p>
+        )}
         <ErrorText message={error} />
         {field('email', 'Email', 'email')}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -290,10 +343,136 @@ function InviteDialog({ open, options, onClose, onInvited }: { open: boolean; op
           </div>
         )}
         <button type="submit" disabled={busy} className="rounded-md font-ui text-[13px] font-600 py-2.5 text-white disabled:opacity-50 mt-1" style={{ background: BLUE }}>
-          {busy ? 'Please wait…' : 'Create invitation'}
+          {busy ? 'Please wait…' : mode === 'request' ? 'Submit request' : 'Create invitation'}
         </button>
       </form>
     </Modal>
+  )
+}
+
+/**
+ * Invitation requests. Reviewers (Admin, Super Admin) see pending requests, whether the email already has an
+ * account, and issue or decline them. Requesters see only their own requests as Submitted / Processed.
+ */
+function InvitationRequests({ reviewer, reloadKey, onIssued, onError, onStepUp }: { reviewer: boolean; reloadKey: number; onIssued: (link: IssuedLink) => void; onError: (err: unknown) => Promise<void>; onStepUp: (retry: () => void) => void }) {
+  const [rows, setRows] = useState<InvitationRequestRow[] | null>(null)
+  const [declining, setDeclining] = useState<InvitationRequestRow | null>(null)
+  const load = useCallback(async () => {
+    try {
+      const result = await authApi.get<{ items: InvitationRequestRow[] }>(`/admin/customers/invitation-requests${reviewer ? '?status=PENDING' : ''}`)
+      setRows(result.items)
+    } catch (err) {
+      await onError(err)
+    }
+  }, [reviewer, onError])
+
+  useEffect(() => {
+    void load()
+  }, [load, reloadKey])
+
+  // Issue and decline need a fresh 2FA confirmation; the retry repeats the same decision on the same request id
+  // (and the same note). A refused attempt never changes the request on the server.
+  const issue = async (row: InvitationRequestRow) => {
+    try {
+      const result = await authApi.post<{ link: IssuedLink }>(`/admin/customers/invitation-requests/${row.id}/issue`, {}, 'staff')
+      onIssued(result.link)
+    } catch (err) {
+      if (err instanceof ApiRequestError && err.code === 'step_up_required') {
+        onStepUp(() => void issue(row))
+        return
+      }
+      await onError(err)
+    }
+    await load()
+  }
+
+  const declineRequest = async (row: InvitationRequestRow, note: string) => {
+    try {
+      await authApi.post(`/admin/customers/invitation-requests/${row.id}/decline`, note ? { note } : {}, 'staff')
+    } catch (err) {
+      if (err instanceof ApiRequestError && err.code === 'step_up_required') {
+        onStepUp(() => void declineRequest(row, note))
+        return
+      }
+      await onError(err)
+    }
+    await load()
+  }
+
+  const decline = async (note: string) => {
+    const row = declining
+    setDeclining(null)
+    if (row) await declineRequest(row, note)
+  }
+
+  if (!rows || (reviewer && rows.length === 0)) return null
+  return (
+    <div className="mt-8">
+      <h3 className="font-display font-700 text-[17px] mb-1" style={{ color: NAVY }}>Invitation requests</h3>
+      <p className="font-ui text-[12px] mb-3" style={{ color: 'var(--nb-text-secondary)' }}>
+        {reviewer
+          ? 'Requests from Managers awaiting review. Issue the invitation, or decline the request. An email that already has an account is flagged.'
+          : 'Your invitation requests. An Admin reviews each request; an invited customer appears in your list once the invitation is sent.'}
+      </p>
+      <div className="rounded-lg bg-white overflow-x-auto" style={{ border: '1px solid var(--nb-border)' }}>
+        <table className="w-full" style={{ minWidth: 640 }}>
+          <thead>
+            <tr style={{ background: 'var(--nb-surface)', borderBottom: '1px solid var(--nb-border)' }}>
+              {(reviewer ? ['Company', 'Contact', 'Team', 'Requested by', 'Status', 'Actions'] : ['Company', 'Contact', 'Team', 'Status', 'Requested']).map(heading => (
+                <th key={heading} className="px-4 py-3 text-left font-ui text-[10px] font-700 tracking-widest uppercase" style={{ color: '#8f9faf' }}>{heading}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && (
+              <tr><td colSpan={5} className="px-4 py-6 font-ui text-[13px]" style={{ color: '#94a3b8' }}>No invitation requests yet.</td></tr>
+            )}
+            {rows.map((row, index) => (
+              <tr key={row.id} style={{ borderBottom: '1px solid var(--nb-bg)', background: index % 2 === 0 ? '#fff' : 'var(--nb-surface)' }}>
+                <td className="px-4 py-3 align-top font-ui text-[12px] font-600" style={{ color: NAVY }} data-i18n-skip>{row.companyName}</td>
+                <td className="px-4 py-3 align-top">
+                  <div className="font-ui text-[12px]" style={{ color: 'var(--nb-text-secondary)' }} data-i18n-skip>{row.firstName} {row.lastName}</div>
+                  <div className="font-ui text-[11px]" style={{ color: '#8f9faf' }} data-i18n-skip>{row.email}</div>
+                </td>
+                <td className="px-4 py-3 align-top font-ui text-[12px]" style={{ color: 'var(--nb-text-secondary)' }}>
+                  {row.team ? <span data-i18n-skip>{row.team.name}</span> : <span>Unassigned</span>}
+                </td>
+                {reviewer && (
+                  <td className="px-4 py-3 align-top font-ui text-[12px]" style={{ color: 'var(--nb-text-secondary)' }}>
+                    {row.requestedBy ? <span data-i18n-skip>{row.requestedBy.displayName}</span> : row.requestedByMe ? <span>You</span> : <span>—</span>}
+                  </td>
+                )}
+                <td className="px-4 py-3 align-top">
+                  <span className="inline-block rounded-sm font-ui text-[10px] font-700 tracking-wide uppercase px-2 py-0.5" style={{ background: '#eef2ff', color: '#4338ca' }}>{REQUEST_LABELS[row.status]}</span>
+                  {reviewer && row.existingCustomer && (
+                    <div className="font-ui text-[11px] mt-1 max-w-[220px]" style={{ color: '#92400e' }}>
+                      <span>This email already has an account</span> (<span>{STATUS_LABELS[row.existingCustomer.status]}</span>)
+                    </div>
+                  )}
+                </td>
+                {reviewer ? (
+                  <td className="px-4 py-3 align-top">
+                    <div className="flex flex-wrap gap-1.5">
+                      {!row.existingCustomer && (
+                        <button type="button" onClick={() => void issue(row)} className={smallButton} style={{ background: '#16a34a', color: '#fff' }}>Issue invitation</button>
+                      )}
+                      <button type="button" onClick={() => setDeclining(row)} className={smallButton} style={{ border: '1px solid #fecaca', color: '#b91c1c' }}>Decline</button>
+                    </div>
+                  </td>
+                ) : (
+                  <td className="px-4 py-3 align-top font-ui text-[12px]" style={{ color: 'var(--nb-text-secondary)' }} data-i18n-skip>{row.createdAt.slice(0, 10)}</td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <ReasonDialog
+        action={declining ? { label: 'Decline request', required: false, hint: 'The note is visible to Admins and Super Admins only.' } : null}
+        onClose={() => setDeclining(null)}
+        onSubmit={decline}
+      />
+    </div>
   )
 }
 
@@ -313,6 +492,9 @@ export default function ApiCustomersPanel() {
   const [inviting, setInviting] = useState(false)
   const [link, setLink] = useState<{ link: IssuedLink; title: string } | null>(null)
   const [stepUpRetry, setStepUpRetry] = useState<(() => void) | null>(null)
+  const [requestsKey, setRequestsKey] = useState(0)
+  const reviewer = can('customers.invite')
+  const requester = !reviewer && can('customers.request_invite')
 
   /** Signed-out sessions go back to sign-in; everything else becomes a message. */
   const handleError = useCallback(
@@ -361,6 +543,11 @@ export default function ApiCustomersPanel() {
       await load()
     } catch (err) {
       setReasonFor(null)
+      // Status decisions need a fresh 2FA confirmation; retry the same decision (with its reason) afterwards.
+      if (err instanceof ApiRequestError && err.code === 'step_up_required') {
+        setStepUpRetry(() => () => void act(customer, action, reason))
+        return
+      }
       await handleError(err)
     }
   }
@@ -398,9 +585,9 @@ export default function ApiCustomersPanel() {
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
         <h2 className="font-display font-700 text-[22px]" style={{ color: NAVY }}>Customer Management</h2>
-        {can('customers.invite') && (
+        {(reviewer || requester) && (
           <button type="button" onClick={() => setInviting(true)} className="rounded-md font-ui text-[12px] font-600 px-4 py-2 text-white" style={{ background: BLUE }}>
-            Invite customer
+            {reviewer ? 'Invite customer' : 'Request invitation'}
           </button>
         )}
       </div>
@@ -448,6 +635,7 @@ export default function ApiCustomersPanel() {
             )}
             {data?.items.map((customer, index) => {
               const decide = can('customers.approve') && (customer.status === 'PENDING' || customer.status === 'REJECTED')
+              const ownInvitation = customer.invitedByMe || customer.requestedByMe
               return (
                 <tr key={customer.id} style={{ borderBottom: '1px solid var(--nb-bg)', background: index % 2 === 0 ? '#fff' : 'var(--nb-surface)' }}>
                   <td className="px-4 py-3 align-top">
@@ -474,7 +662,10 @@ export default function ApiCustomersPanel() {
                       {decide && customer.invitedByMe && (
                         <span className="font-ui text-[11px] max-w-[200px]" style={{ color: '#92400e' }}>You invited this customer — another approver must decide.</span>
                       )}
-                      {decide && !customer.invitedByMe && (
+                      {decide && !customer.invitedByMe && customer.requestedByMe && (
+                        <span className="font-ui text-[11px] max-w-[200px]" style={{ color: '#92400e' }}>You requested this invitation — another approver must decide.</span>
+                      )}
+                      {decide && !ownInvitation && (
                         <>
                           <button type="button" onClick={() => void act(customer, 'approve')} className={smallButton} style={{ background: '#16a34a', color: '#fff' }}>Approve</button>
                           {customer.status === 'PENDING' && (
@@ -516,9 +707,23 @@ export default function ApiCustomersPanel() {
         onClose={() => setReasonFor(null)}
         onSubmit={reason => (reasonFor ? act(reasonFor.customer, reasonFor.action, reason || undefined) : Promise.resolve())}
       />
+      {(reviewer || requester) && (
+        <InvitationRequests
+          reviewer={reviewer}
+          reloadKey={requestsKey}
+          onError={handleError}
+          onStepUp={retry => setStepUpRetry(() => retry)}
+          onIssued={issued => {
+            setLink({ link: issued, title: 'Invitation link' })
+            void load()
+          }}
+        />
+      )}
+
       <AssignDialog customer={assigning} options={options} onClose={() => setAssigning(null)} onSave={saveAssignment} />
       <InviteDialog
         open={inviting}
+        mode={reviewer ? 'invite' : 'request'}
         options={options}
         onClose={() => setInviting(false)}
         onInvited={issued => {
@@ -526,6 +731,12 @@ export default function ApiCustomersPanel() {
           setLink({ link: issued, title: 'Invitation link' })
           void load()
         }}
+        onRequested={() => {
+          setInviting(false)
+          setNotice('Request submitted. An Admin will review it.')
+          setRequestsKey(key => key + 1)
+        }}
+        onStepUp={retry => setStepUpRetry(() => retry)}
       />
       <LinkDialog link={link?.link ?? null} title={link?.title ?? ''} onClose={() => setLink(null)} />
       <StepUpDialog

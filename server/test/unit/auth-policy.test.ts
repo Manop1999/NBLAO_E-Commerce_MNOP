@@ -110,9 +110,12 @@ describe('role map (D12)', () => {
 
   it('grants the account-management permissions exactly as decided', () => {
     expect(holders('customers.view')).toEqual(['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'SALES'])
-    for (const code of ['customers.approve', 'customers.invite', 'customers.assign', 'customers.reset_password', 'audit.view'] as const) {
+    for (const code of ['customers.approve', 'customers.request_invite', 'customers.assign', 'customers.reset_password', 'audit.view'] as const) {
       expect(holders(code), code).toEqual(['SUPER_ADMIN', 'ADMIN', 'MANAGER'])
     }
+    // A direct invitation looks the email up across all customers, so only global-scope roles issue one; Managers
+    // request invitations instead (no enumeration across Manager scopes).
+    expect(holders('customers.invite')).toEqual(['SUPER_ADMIN', 'ADMIN'])
     for (const code of ['customers.export', 'customers.export_contact', 'addresses.export', 'payments.refund', 'audit.view_security', 'staff.manage', 'teams.manage', 'roles.assign'] as const) {
       expect(holders(code), code).toEqual(['SUPER_ADMIN', 'ADMIN'])
     }

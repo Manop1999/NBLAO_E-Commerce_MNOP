@@ -19,6 +19,8 @@ export const PERMISSION_CODES = [
   'customers.view',
   'customers.approve',
   'customers.invite',
+  // File an invitation request that an Admin reviews (Managers): no customer lookup, so no email enumeration.
+  'customers.request_invite',
   'customers.assign',
   'customers.reset_password',
   'customers.export',

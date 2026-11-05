@@ -1,6 +1,8 @@
+import type { LightMyRequestResponse } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { hashRecoveryCode } from '../../src/auth/recoveryCodes'
 import { hashToken } from '../../src/auth/tokens'
-import { totpAt } from '../../src/auth/totp'
+import { base32Decode, totpAt } from '../../src/auth/totp'
 import { createHarness, PASSWORD, removeStaleFixtures, type Browser } from './authHarness'
 
 const h = createHarness()
@@ -327,6 +329,99 @@ describe('2FA failures: separate from passwords and limited per challenge and pe
     } finally {
       await limited.cleanup()
     }
+  })
+})
+
+describe('2FA codes are claimed atomically (concurrent requests with the same code)', () => {
+  const PARALLEL = 4
+  const hashes = (codes: string[]) => codes.map(code => Buffer.from(hashRecoveryCode(code)).toString('hex')).sort()
+  const storedHashes = async (staffId: string) =>
+    (await h.prisma.mfaRecoveryCode.findMany({ where: { staffId, usedAt: null } })).map(row => Buffer.from(row.codeHash).toString('hex')).sort()
+  /** Exactly one success; every other answer is a refusal (the claim was lost, or the code was already spent). */
+  const oneWinner = (responses: LightMyRequestResponse[]) => {
+    const winners = responses.filter(response => response.statusCode === 200)
+    expect(winners).toHaveLength(1)
+    for (const loser of responses.filter(response => response.statusCode !== 200)) {
+      expect([400, 401, 409]).toContain(loser.statusCode)
+      if (loser.statusCode === 409) expect(loser.json().error.code).toBe('mfa_code_used')
+    }
+    return winners[0]!
+  }
+
+  it('first enrolment: only one confirmation succeeds; the stored recovery codes are exactly the winner\'s', async () => {
+    const manager = await h.staff('mgr-race-enrol', 'MANAGER')
+    const agent = h.browser()
+    expect((await agent.staffLogin(manager.email)).json().stage).toBe('MFA_ENROLLMENT_REQUIRED')
+    const secret = base32Decode((await agent.post('/api/auth/staff/mfa/enroll/start')).json().manualKey)
+    const code = totpAt(secret, h.clock.ms)
+    const responses = await Promise.all(Array.from({ length: PARALLEL }, () => agent.post('/api/auth/staff/mfa/enroll/confirm', { code })))
+    const winner = oneWinner(responses)
+    const codes = winner.json().recoveryCodes as string[]
+    expect(codes).toHaveLength(10)
+    expect(await storedHashes(manager.id)).toEqual(hashes(codes))
+    expect(await h.prisma.staffMfa.findUniqueOrThrow({ where: { staffId: manager.id } })).toMatchObject({ pendingSecretCiphertext: null })
+    h.advance(30_000)
+
+    // Normal sign-in still works with TOTP, and a winner recovery code works exactly once.
+    const totp = h.browser()
+    await totp.staffLogin(manager.email)
+    expect((await totp.post('/api/auth/staff/mfa/verify', { code: totpAt(secret, h.clock.ms) })).json()).toMatchObject({ stage: 'FULL', method: 'totp' })
+    h.advance(30_000)
+    const recovery = h.browser()
+    await recovery.staffLogin(manager.email)
+    expect((await recovery.post('/api/auth/staff/mfa/verify', { code: codes[0]! })).json()).toMatchObject({ stage: 'FULL', method: 'recovery_code' })
+    const again = h.browser()
+    await again.staffLogin(manager.email)
+    expect((await again.post('/api/auth/staff/mfa/verify', { code: codes[0]! })).json().error.code).toBe('invalid_code')
+  })
+
+  it('re-enrolment: only one confirmation of the new authenticator succeeds; its recovery codes stay intact', async () => {
+    const admin = await h.staff('admin-race-reenrol', 'ADMIN')
+    const { agent, secret: oldSecret } = await h.signedInStaff(admin.email)
+    expect((await h.stepUp(agent, oldSecret!)).statusCode).toBe(200)
+    const start = await agent.post('/api/auth/staff/mfa/enroll/start')
+    expect(start.statusCode).toBe(200)
+    const newSecret = base32Decode(start.json().manualKey)
+    const code = totpAt(newSecret, h.clock.ms)
+    const responses = await Promise.all(Array.from({ length: PARALLEL }, () => agent.post('/api/auth/staff/mfa/enroll/confirm', { code })))
+    const winner = oneWinner(responses)
+    expect(await storedHashes(admin.id)).toEqual(hashes(winner.json().recoveryCodes as string[]))
+    expect(await h.prisma.staffMfa.findUniqueOrThrow({ where: { staffId: admin.id } })).toMatchObject({ pendingSecretCiphertext: null, pendingCreatedAt: null })
+    h.advance(30_000)
+    // The new authenticator signs in; the old one no longer does.
+    const next = h.browser()
+    await next.staffLogin(admin.email)
+    expect((await next.post('/api/auth/staff/mfa/verify', { code: totpAt(oldSecret!, h.clock.ms) })).json().error.code).toBe('invalid_code')
+    expect((await next.post('/api/auth/staff/mfa/verify', { code: totpAt(newSecret, h.clock.ms) })).json()).toMatchObject({ stage: 'FULL', method: 'totp' })
+  })
+
+  it('refuses a re-enrolment confirmation once the pending setup has expired', async () => {
+    const admin = await h.staff('admin-reenrol-expired', 'ADMIN')
+    const { agent, secret } = await h.signedInStaff(admin.email)
+    await h.stepUp(agent, secret!)
+    const newSecret = base32Decode((await agent.post('/api/auth/staff/mfa/enroll/start')).json().manualKey)
+    h.advance(16 * MIN)
+    expect((await agent.post('/api/auth/staff/mfa/enroll/confirm', { code: totpAt(newSecret, h.clock.ms) })).json().error.code).toBe('enrollment_not_started')
+  })
+
+  it('recovery-code regeneration: only one request with the same code succeeds and only its codes remain valid', async () => {
+    const admin = await h.staff('admin-race-regen', 'ADMIN')
+    const { agent, secret } = await h.signedInStaff(admin.email)
+    const before = await storedHashes(admin.id)
+    const code = totpAt(secret!, h.clock.ms)
+    const responses = await Promise.all(Array.from({ length: PARALLEL }, () => agent.post('/api/auth/staff/mfa/recovery-codes/regenerate', { password: PASSWORD, code })))
+    const winner = oneWinner(responses)
+    const codes = winner.json().recoveryCodes as string[]
+    const after = await storedHashes(admin.id)
+    expect(after).toEqual(hashes(codes))
+    expect(after.some(hash => before.includes(hash))).toBe(false)
+    h.advance(30_000)
+    const signIn = h.browser()
+    await signIn.staffLogin(admin.email)
+    expect((await signIn.post('/api/auth/staff/mfa/verify', { code: codes[9]! })).json()).toMatchObject({ stage: 'FULL', method: 'recovery_code', recoveryCodesRemaining: 9 })
+    // A replay of the regeneration code is refused and leaves the codes untouched.
+    expect((await agent.post('/api/auth/staff/mfa/recovery-codes/regenerate', { password: PASSWORD, code })).statusCode).not.toBe(200)
+    expect((await storedHashes(admin.id)).length).toBe(9)
   })
 })
 

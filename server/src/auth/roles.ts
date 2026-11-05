@@ -39,7 +39,9 @@ const MANAGER: readonly PermissionCode[] = [
   'inventory.import',
   'customers.view',
   'customers.approve',
-  'customers.invite',
+  // Managers request invitations instead of issuing them: a direct invitation has to look the email up across all
+  // customers, which would tell a Manager about accounts outside their scope. Admins issue (customers.invite).
+  'customers.request_invite',
   'customers.assign',
   'customers.reset_password',
   'orders.view',

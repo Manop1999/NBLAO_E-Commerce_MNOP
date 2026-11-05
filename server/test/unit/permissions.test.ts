@@ -67,6 +67,7 @@ describe('permissions: catalog integrity', () => {
       // Phase 1E account management
       'customers.approve',
       'customers.invite',
+      'customers.request_invite',
       'customers.assign',
       'customers.reset_password',
       'staff.reset_password',

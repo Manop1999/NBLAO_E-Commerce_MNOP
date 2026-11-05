@@ -68,6 +68,11 @@ export interface StaffAuthOptions {
   rateLimit: { login: RouteRateLimit; mfa: RouteRateLimit }
 }
 
+/** Thrown inside a transaction when its atomic 2FA claim matched no row (rolls the whole transaction back). */
+class MfaClaimLost extends Error {}
+
+const mfaCodeUsed = () => new ApiError(409, 'mfa_code_used', 'This code was already used. Wait for the next code and try again.')
+
 export const mfaThrottled = () =>
   new ApiError(429, 'mfa_throttled', 'Too many wrong codes from this network. Try again later, or ask a Super Admin to reset your two-factor authentication.')
 
@@ -199,11 +204,17 @@ export function registerStaffAuthRoutes(app: FastifyInstance, ctx: AuthContext, 
     if (step === null) return failMfaAttempt(current, request, reply, 'mfa_enrollment')
 
     const codes = generateRecoveryCodes()
-    const issued = await ctx.prisma.$transaction(async tx => {
-      await tx.staffMfa.update({
-        where: { staffId: staff.id },
+    const issued = await claimOrRefuse(current, 'mfa_enrollment', () => ctx.prisma.$transaction(async tx => {
+      // Atomic claim, re-checked inside the transaction: the enrolment is still the one this code was checked against
+      // (same secret; a re-enrolment still pending and fresh) and the time step was not used yet. A concurrent request
+      // with the same code loses here, before it can touch recovery codes or sessions.
+      const claimed = await tx.staffMfa.updateMany({
+        where: reenrolling
+          ? { staffId: staff.id, enabledAt: { not: null }, pendingSecretCiphertext: { equals: box }, pendingCreatedAt: { gte: new Date(now.getTime() - PENDING_ENROLMENT_MS) } }
+          : { staffId: staff.id, enabledAt: null, secretCiphertext: { equals: box }, OR: [{ lastUsedStep: null }, { lastUsedStep: { lt: step } }] },
         data: { secretCiphertext: box, enabledAt: now, lastUsedStep: step, pendingSecretCiphertext: null, pendingCreatedAt: null },
       })
+      if (claimed.count !== 1) throw new MfaClaimLost()
       await tx.mfaRecoveryCode.deleteMany({ where: { staffId: staff.id } })
       await tx.mfaRecoveryCode.createMany({ data: codes.map(value => ({ staffId: staff.id, codeHash: hashRecoveryCode(value), createdAt: now })) })
       await tx.staffUser.update({ where: { id: staff.id }, data: { mfaFailedCount: 0 } })
@@ -221,7 +232,7 @@ export function registerStaffAuthRoutes(app: FastifyInstance, ctx: AuthContext, 
         subject: { type: 'STAFF', id: staff.id },
       })
       return { ...rotated, stage }
-    })
+    }))
     setSessionCookie(reply, http, 'STAFF', issued.token, issued.policy)
     return { stage: issued.stage, recoveryCodes: codes }
   })
@@ -285,16 +296,39 @@ export function registerStaffAuthRoutes(app: FastifyInstance, ctx: AuthContext, 
     if (step === null) return failMfaAttempt(current, request, reply, 'recovery_codes_regenerate')
 
     const codes = generateRecoveryCodes()
-    await ctx.prisma.$transaction(async tx => {
-      await tx.staffMfa.update({ where: { staffId: staff.id }, data: { lastUsedStep: step } })
+    const verifiedSecret = staff.mfa.secretCiphertext
+    await claimOrRefuse(current, 'recovery_codes_regenerate', () => ctx.prisma.$transaction(async tx => {
+      // Atomic claim of the time step (same secret as verified, step not used yet): only one of two concurrent
+      // requests with the same code gets here, so the loser can never replace the winner's recovery codes.
+      const claimed = await tx.staffMfa.updateMany({
+        where: { staffId: staff.id, enabledAt: { not: null }, secretCiphertext: { equals: verifiedSecret }, OR: [{ lastUsedStep: null }, { lastUsedStep: { lt: step } }] },
+        data: { lastUsedStep: step },
+      })
+      if (claimed.count !== 1) throw new MfaClaimLost()
       await tx.staffUser.update({ where: { id: staff.id }, data: { mfaFailedCount: 0 } })
       await clearSource(tx, staff.id, request.ip)
       await tx.mfaRecoveryCode.deleteMany({ where: { staffId: staff.id } })
       await tx.mfaRecoveryCode.createMany({ data: codes.map(value => ({ staffId: staff.id, codeHash: hashRecoveryCode(value), createdAt: now })) })
       await recordAudit(tx, { at: now, category: 'SECURITY', type: 'recovery_codes_regenerated', outcome: 'success', actor: { type: 'STAFF', id: staff.id }, subject: { type: 'STAFF', id: staff.id } })
-    })
+    }))
     return { recoveryCodes: codes }
   })
+
+  /**
+   * Runs a transaction that starts with an atomic 2FA claim. When the claim is lost (the same code was used by a
+   * concurrent request, or the enrolment changed meanwhile) nothing in the transaction happened; the request is
+   * refused with 409 and audited. It does not count as a wrong code: the code itself was valid.
+   */
+  async function claimOrRefuse<T>(current: StaffRequest, type: string, work: () => Promise<T>): Promise<T> {
+    try {
+      return await work()
+    } catch (error) {
+      if (!(error instanceof MfaClaimLost)) throw error
+      const { staff } = current
+      await audit({ type, outcome: 'denied', actor: { type: 'STAFF', id: staff.id }, subject: { type: 'STAFF', id: staff.id }, details: { reason: 'replay_or_changed' } })
+      throw mfaCodeUsed()
+    }
+  }
 
   /**
    * Runs before any 2FA code is checked. Refuses (without looking at the code) when this source is blocked for

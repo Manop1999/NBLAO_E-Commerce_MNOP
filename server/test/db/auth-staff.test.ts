@@ -377,6 +377,20 @@ describe('teams', () => {
     const listed = await (await who('sa1')).get('/api/admin/teams')
     expect((listed.json().items as { name: string }[]).some(item => item.name === `${h.run} Created`)).toBe(true)
   })
+
+  it('counts only visible staff for Admin (no hidden Admin or Super Admin members); Super Admin sees full counts', async () => {
+    const counted = await h.team('Counted')
+    await h.staff('count-manager', 'MANAGER', { teamId: counted.id })
+    await h.staff('count-sales', 'SALES', { teamId: counted.id })
+    await h.staff('count-admin', 'ADMIN', { teamId: counted.id })
+    await h.staff('count-sa', 'SUPER_ADMIN', { teamId: counted.id })
+    const countFor = async (name: string) => {
+      const items = (await (await who(name)).get('/api/admin/teams')).json().items as { id: string; staffCount: number; customerCount: number }[]
+      return items.find(item => item.id === counted.id)!
+    }
+    expect(await countFor('admin')).toMatchObject({ staffCount: 2, customerCount: 0 })
+    expect(await countFor('sa1')).toMatchObject({ staffCount: 4, customerCount: 0 })
+  })
 })
 
 describe('local CLI functions', () => {

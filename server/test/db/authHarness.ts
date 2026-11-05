@@ -184,6 +184,7 @@ export function createHarness(options: { rateLimits?: boolean; captureQueries?: 
   }
 
   async function cleanup() {
+    await prisma.customerInvitationRequest.deleteMany({ where: { email: { startsWith: run } } })
     await prisma.customer.deleteMany({ where: { email: { startsWith: run } } })
     await prisma.staffUser.deleteMany({ where: { email: { startsWith: run } } })
     await prisma.team.deleteMany({ where: { name: { startsWith: run } } })
@@ -201,6 +202,7 @@ export function createHarness(options: { rateLimits?: boolean; captureQueries?: 
 export async function removeStaleFixtures(prisma: PrismaClient, currentRun: string) {
   const stale = { startsWith: FIXTURE_PREFIX, endsWith: `@${FIXTURE_DOMAIN}`, not: { startsWith: currentRun } }
   const staleStaff = { OR: [{ email: stale }, { email: { startsWith: FIXTURE_PREFIX, endsWith: PRIVILEGED_EMAIL_SUFFIX, not: { startsWith: currentRun } } }] }
+  await prisma.customerInvitationRequest.deleteMany({ where: { email: stale } })
   await prisma.customer.deleteMany({ where: { email: stale } })
   await prisma.staffUser.deleteMany({ where: staleStaff })
   await prisma.team.deleteMany({ where: { name: { startsWith: FIXTURE_PREFIX, not: { startsWith: currentRun } } } })

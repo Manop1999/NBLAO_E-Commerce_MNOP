@@ -279,8 +279,11 @@ export function registerAdminStaffRoutes(app: FastifyInstance, ctx: AuthContext,
   // ---------------------------------------------------------------- teams
 
   app.get('/api/admin/teams', async (request, reply) => {
-    await guards.staff(request, reply, { permission: 'teams.manage' })
-    const teams = await ctx.prisma.team.findMany({ orderBy: { name: 'asc' }, include: { _count: { select: { staff: true, customers: true } } } })
+    const current = await guards.staff(request, reply, { permission: 'teams.manage' })
+    // Staff counts follow staff visibility, in the count query itself: an Admin's counts never include Admin or Super
+    // Admin members (hidden accounts); a Super Admin's are complete.
+    const visibleStaff = staffVisibilityScope(current.actor) ?? { id: { in: [] } }
+    const teams = await ctx.prisma.team.findMany({ orderBy: { name: 'asc' }, include: { _count: { select: { staff: { where: visibleStaff }, customers: true } } } })
     return { items: teams.map(team => ({ id: team.id, name: team.name, staffCount: team._count.staff, customerCount: team._count.customers })) }
   })
 

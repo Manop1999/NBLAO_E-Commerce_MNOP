@@ -176,15 +176,52 @@ enum AuditCategory {
   OPERATIONAL
 }
 
+enum InvitationRequestStatus {
+  PENDING
+  ISSUED
+  DECLINED
+}
+
 model Team {
-  id        String      @id @default(uuid()) @db.Uuid
-  name      String      @unique
-  createdAt DateTime    @default(now()) @map("created_at")
-  updatedAt DateTime    @updatedAt @map("updated_at")
-  staff     StaffUser[]
-  customers Customer[]
+  id                 String                      @id @default(uuid()) @db.Uuid
+  name               String                      @unique
+  createdAt          DateTime                    @default(now()) @map("created_at")
+  updatedAt          DateTime                    @updatedAt @map("updated_at")
+  staff              StaffUser[]
+  customers          Customer[]
+  invitationRequests CustomerInvitationRequest[]
 
   @@map("teams")
+}
+
+/// A Manager's request for a customer invitation. Filing it never reads the customers table (no enumeration across
+/// Manager scopes); an Admin or Super Admin issues the invitation (creating the INVITED customer) or declines.
+model CustomerInvitationRequest {
+  id              String                  @id @default(uuid()) @db.Uuid
+  // Lowercase (CHECK constraint). Deliberately not unique.
+  email           String
+  firstName       String                  @map("first_name")
+  lastName        String                  @map("last_name")
+  phone           String
+  companyName     String                  @map("company_name")
+  teamId          String?                 @map("team_id") @db.Uuid
+  team            Team?                   @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  assignedStaffId String?                 @map("assigned_staff_id") @db.Uuid
+  assignedStaff   StaffUser?              @relation("InvitationRequestAssignee", fields: [assignedStaffId], references: [id], onDelete: SetNull)
+  // Separation of duties: the requester can never approve or reject the resulting customer.
+  requestedById   String                  @map("requested_by_id") @db.Uuid
+  status          InvitationRequestStatus @default(PENDING)
+  decidedById     String?                 @map("decided_by_id") @db.Uuid
+  decidedAt       DateTime?               @map("decided_at")
+  // Internal note, shown to Admin and Super Admin only.
+  decisionNote    String?                 @map("decision_note")
+  customerId      String?                 @unique @map("customer_id") @db.Uuid
+  customer        Customer?               @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  createdAt       DateTime                @default(now()) @map("created_at")
+
+  @@index([status, createdAt])
+  @@index([requestedById])
+  @@map("customer_invitation_requests")
 }
 
 model StaffUser {
@@ -218,6 +255,7 @@ model StaffUser {
   tokens             AccountToken[]
   mfaThrottles       MfaThrottle[]
   assignedCustomers  Customer[]        @relation("CustomerAssignee")
+  invitationRequests CustomerInvitationRequest[] @relation("InvitationRequestAssignee")
 
   @@index([teamId])
   @@index([role, status])
@@ -301,6 +339,7 @@ model Customer {
   updatedAt         DateTime       @updatedAt @map("updated_at")
   sessions          Session[]
   tokens            AccountToken[]
+  invitationRequest CustomerInvitationRequest?
 
   @@index([status])
   @@index([teamId])

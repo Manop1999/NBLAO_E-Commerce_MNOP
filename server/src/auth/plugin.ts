@@ -7,7 +7,7 @@ import rateLimit from '@fastify/rate-limit'
 import type { FastifyInstance } from 'fastify'
 import { ApiError } from '../errors.ts'
 import { registerAccountTokenRoutes } from './accountTokens.ts'
-import { registerAdminCustomerRoutes } from './adminCustomers.ts'
+import { INVITATION_REQUESTS_PER_HOUR, registerAdminCustomerRoutes } from './adminCustomers.ts'
 import { registerAdminStaffRoutes } from './adminStaff.ts'
 import type { AuthContext } from './context.ts'
 import { registerCustomerAuthRoutes } from './customerAuth.ts'
@@ -62,6 +62,6 @@ export async function authPlugin(app: FastifyInstance, options: AuthPluginOption
   registerStaffAuthRoutes(app, ctx, { http, guards, emailLimiter, mfaSourceLimiter, rateLimit: { login: limit(RATE_LIMITS.login), mfa: limit(RATE_LIMITS.mfa) } })
   registerCustomerAuthRoutes(app, ctx, { http, guards, emailLimiter, rateLimit: { login: limit(RATE_LIMITS.login), register: limit(RATE_LIMITS.register) } })
   registerAccountTokenRoutes(app, ctx, limit(RATE_LIMITS.accountToken))
-  registerAdminCustomerRoutes(app, ctx, guards)
+  registerAdminCustomerRoutes(app, ctx, guards, { requestLimiter: new AttemptLimiter(limitsOn ? INVITATION_REQUESTS_PER_HOUR : Number.MAX_SAFE_INTEGER, 60 * 60_000) })
   registerAdminStaffRoutes(app, ctx, guards, { conflictLimiter: new AttemptLimiter(limitsOn ? STAFF_EMAIL_CONFLICTS_PER_HOUR : Number.MAX_SAFE_INTEGER, 60 * 60_000) })
 }

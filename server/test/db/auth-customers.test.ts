@@ -16,6 +16,13 @@ async function who(name: string): Promise<Browser> {
   if ((await person.agent.refresh('staff')).statusCode !== 200) person.agent = (await h.signedInStaff(person.email, person.secret)).agent
   return person.agent
 }
+/** The person's browser with a fresh 2FA confirmation (step-up), needed for customer status decisions. */
+async function decider(name: string): Promise<Browser> {
+  const agent = await who(name)
+  const step = await h.stepUp(agent, people[name]!.secret!)
+  expect(step.statusCode, `step-up ${name}`).toBe(200)
+  return agent
+}
 const tokenOf = (path: string) => path.split('#')[1]!
 const listIds = async (agent: Browser, query = '') => {
   const response = await agent.get(`/api/admin/customers${query}`)
@@ -112,8 +119,8 @@ describe('scopes', () => {
     expect(await listIds((await who('admin')), `?teamId=${teamB.id}`)).toContain(inB.id)
     expect((await (await who('warehouse')).get('/api/admin/customers')).json().error.code).toBe('forbidden')
 
-    // Out of scope looks exactly like a missing customer.
-    const outOfScope = await (await who('managerA')).post(`/api/admin/customers/${inB.id}/approve`)
+    // Out of scope looks exactly like a missing customer (also with a fresh 2FA confirmation).
+    const outOfScope = await (await decider('managerA')).post(`/api/admin/customers/${inB.id}/approve`)
     expect(outOfScope.statusCode).toBe(404)
     expect((await (await who('salesA')).post(`/api/admin/customers/${salesOwned.id}/approve`)).json().error.code).toBe('forbidden')
   })
@@ -122,42 +129,85 @@ describe('scopes', () => {
 describe('approval workflow', () => {
   it('lets Manager, Admin and Super Admin approve, reject, suspend and reactivate, auditing the actor', async () => {
     const one = await h.customer('approve-one')
-    const approved = await (await who('managerA')).post(`/api/admin/customers/${one.id}/approve`)
+    const approved = await (await decider('managerA')).post(`/api/admin/customers/${one.id}/approve`)
     expect(approved.statusCode).toBe(200)
     expect(approved.json().customer).toMatchObject({ status: 'ACTIVE', approvedByMe: true })
     expect((await h.prisma.customer.findUniqueOrThrow({ where: { id: one.id } })).approvedById).toBe(people.managerA!.id)
     const [event] = await auditFor(one.id, 'customer_approved')
     expect(event).toMatchObject({ category: 'OPERATIONAL', outcome: 'success', actorType: 'STAFF', actorId: people.managerA!.id })
 
-    expect((await (await who('admin')).post(`/api/admin/customers/${one.id}/approve`)).json().error.code).toBe('invalid_status')
-    expect((await (await who('admin')).post(`/api/admin/customers/${one.id}/suspend`, {})).statusCode).toBe(400)
+    expect((await (await decider('admin')).post(`/api/admin/customers/${one.id}/approve`)).json().error.code).toBe('invalid_status')
+    expect((await (await decider('admin')).post(`/api/admin/customers/${one.id}/suspend`, {})).statusCode).toBe(400)
     const session = h.browser()
     await session.customerLogin(one.email)
-    expect((await (await who('admin')).post(`/api/admin/customers/${one.id}/suspend`, { reason: 'Test suspension' })).json().customer.status).toBe('SUSPENDED')
+    expect((await (await decider('admin')).post(`/api/admin/customers/${one.id}/suspend`, { reason: 'Test suspension' })).json().customer.status).toBe('SUSPENDED')
     expect((await session.get('/api/auth/customer/session')).statusCode).toBe(401)
-    expect((await (await who('sa')).post(`/api/admin/customers/${one.id}/reactivate`, {})).json().customer.status).toBe('ACTIVE')
+    expect((await (await decider('sa')).post(`/api/admin/customers/${one.id}/reactivate`, {})).json().customer.status).toBe('ACTIVE')
+    expect((await auditFor(one.id, 'customer_suspended'))[0]).toMatchObject({ outcome: 'success', actorId: people.admin!.id, details: { fromStatus: 'ACTIVE', toStatus: 'SUSPENDED', reason: 'Test suspension' } })
+    expect((await auditFor(one.id, 'customer_reactivated'))[0]).toMatchObject({ outcome: 'success', actorId: people.sa!.id, details: { fromStatus: 'SUSPENDED', toStatus: 'ACTIVE' } })
 
     const two = await h.customer('reject-two')
-    expect((await (await who('sa')).post(`/api/admin/customers/${two.id}/reject`, {})).statusCode).toBe(400)
-    const rejected = await (await who('sa')).post(`/api/admin/customers/${two.id}/reject`, { reason: 'Company could not be verified' })
+    expect((await (await decider('sa')).post(`/api/admin/customers/${two.id}/reject`, {})).statusCode).toBe(400)
+    const rejected = await (await decider('sa')).post(`/api/admin/customers/${two.id}/reject`, { reason: 'Company could not be verified' })
     expect(rejected.json().customer).toMatchObject({ status: 'REJECTED', statusReason: 'Company could not be verified' })
     expect((await auditFor(two.id, 'customer_rejected'))[0]?.details).toMatchObject({ reason: 'Company could not be verified', toStatus: 'REJECTED' })
 
     // A never-approved customer goes back to PENDING when reactivated (no approval bypass).
     const three = await h.customer('never-approved')
-    await (await who('admin')).post(`/api/admin/customers/${three.id}/suspend`, { reason: 'Test' })
-    expect((await (await who('admin')).post(`/api/admin/customers/${three.id}/reactivate`, {})).json().customer.status).toBe('PENDING')
+    await (await decider('admin')).post(`/api/admin/customers/${three.id}/suspend`, { reason: 'Test' })
+    expect((await (await decider('admin')).post(`/api/admin/customers/${three.id}/reactivate`, {})).json().customer.status).toBe('PENDING')
+  })
+})
+
+describe('fresh 2FA (step-up) for status decisions', () => {
+  const actions = [
+    { action: 'approve', status: 'PENDING', body: {} },
+    { action: 'reject', status: 'PENDING', body: { reason: 'Test' } },
+    { action: 'suspend', status: 'ACTIVE', body: { reason: 'Test' } },
+    { action: 'reactivate', status: 'SUSPENDED', body: {} },
+  ] as const
+
+  it('refuses every decision without a 2FA confirmation in the last 5 minutes, changing and auditing nothing', async () => {
+    for (const name of ['managerA', 'admin', 'sa']) {
+      const agent = await who(name)
+      // The sign-in confirmation counts as a step-up for 5 minutes; let it expire.
+      h.advance(6 * MIN)
+      for (const { action, status, body } of actions) {
+        const customer = await h.customer(`stepup-${name}-${action}`, { status, teamId: teamA.id })
+        const refused = await agent.post(`/api/admin/customers/${customer.id}/${action}`, body)
+        expect(refused.statusCode, `${name} ${action}`).toBe(403)
+        expect(refused.json().error.code).toBe('step_up_required')
+        expect((await h.prisma.customer.findUniqueOrThrow({ where: { id: customer.id } })).status).toBe(status)
+        expect(await h.prisma.auditEvent.count({ where: { subjectId: customer.id } })).toBe(0)
+      }
+    }
+  })
+
+  it('accepts every decision with a fresh confirmation and records the decision in the audit log', async () => {
+    const manager = people.managerA!
+    for (const { action, status, body } of actions) {
+      const customer = await h.customer(`stepup-ok-${action}`, { status, teamId: teamA.id })
+      const agent = await decider('managerA')
+      const response = await agent.post(`/api/admin/customers/${customer.id}/${action}`, body)
+      expect(response.statusCode, action).toBe(200)
+      const [event] = await h.prisma.auditEvent.findMany({ where: { subjectId: customer.id } })
+      expect(event, action).toMatchObject({ category: 'OPERATIONAL', outcome: 'success', actorId: manager.id, subjectType: 'CUSTOMER', teamId: teamA.id, details: { fromStatus: status } })
+      // The confirmation expires after 5 minutes.
+      h.advance(5 * MIN + 1_000)
+      expect((await agent.post(`/api/admin/customers/${customer.id}/${action}`, body)).json().error.code).toBe('step_up_required')
+    }
   })
 })
 
 describe('invitations (option C) and separation of duties', () => {
   it('ends in PENDING after the customer sets a password; the link works once and expires after 72 hours', async () => {
-    const created = await (await who('managerA')).post('/api/admin/customers/invitations', {
+    const created = await (await decider('admin')).post('/api/admin/customers/invitations', {
       email: h.email('invited-one'),
       firstName: 'Test',
       lastName: 'Invitee',
       phone: '+856 20 3333 4444',
       companyName: 'Example Imports',
+      teamId: teamA.id,
     })
     expect(created.statusCode).toBe(201)
     const { customer, link } = created.json()
@@ -180,15 +230,15 @@ describe('invitations (option C) and separation of duties', () => {
     expect((await guest.post('/api/auth/account-token/complete', { token, password: PASSWORD })).json().error.code).toBe('invalid_token')
     expect((await auditFor(customer.id, 'invitation_accepted'))).toHaveLength(1)
 
-    const later = await (await who('admin')).post('/api/admin/customers/invitations', { email: h.email('invited-late'), firstName: 'T', lastName: 'Late', phone: '+856 20 5555 6666', companyName: 'Example' })
+    const later = await (await decider('admin')).post('/api/admin/customers/invitations', { email: h.email('invited-late'), firstName: 'T', lastName: 'Late', phone: '+856 20 5555 6666', companyName: 'Example' })
     h.advance(72 * HOUR + MIN)
     expect((await guest.post('/api/auth/account-token/inspect', { token: tokenOf(later.json().link.path) })).json().error.code).toBe('invalid_token')
     expect((await guest.post('/api/auth/account-token/inspect', { token: 'A'.repeat(43) })).json().error.code).toBe('invalid_token')
   })
 
   it('never lets the inviter approve or reject their invitee, for any role; another approver must decide', async () => {
-    for (const inviter of ['sa', 'admin', 'managerA'] as const) {
-      const invite = await (await who(inviter)).post('/api/admin/customers/invitations', {
+    for (const inviter of ['sa', 'admin'] as const) {
+      const invite = await (await decider(inviter)).post('/api/admin/customers/invitations', {
         email: h.email(`sod-${inviter}`),
         firstName: 'Test',
         lastName: `Sod ${inviter}`,
@@ -200,17 +250,17 @@ describe('invitations (option C) and separation of duties', () => {
       await h.browser().post('/api/auth/account-token/complete', { token: tokenOf(invite.json().link.path), password: PASSWORD })
 
       for (const action of ['approve', 'reject'] as const) {
-        const response = await (await who(inviter)).post(`/api/admin/customers/${id}/${action}`, action === 'reject' ? { reason: 'Test' } : {})
+        const response = await (await decider(inviter)).post(`/api/admin/customers/${id}/${action}`, action === 'reject' ? { reason: 'Test' } : {})
         expect(response.statusCode, `${inviter} ${action}`).toBe(403)
         expect(response.json().error.code).toBe('separation_of_duties')
       }
       expect((await h.prisma.customer.findUniqueOrThrow({ where: { id } })).status).toBe('PENDING')
       const denials = await h.prisma.auditEvent.findMany({ where: { subjectId: id, outcome: 'denied' } })
       expect(denials.map(event => event.actorId)).toEqual([people[inviter]!.id, people[inviter]!.id])
+      expect(denials.map(event => event.details)).toEqual([{ reason: 'separation_of_duties', role: 'inviter' }, { reason: 'separation_of_duties', role: 'inviter' }])
 
-      const other = inviter === 'managerA' ? 'managerA2' : 'admin'
-      const approver = inviter === 'admin' ? 'sa' : other
-      const approved = await (await who(approver)).post(`/api/admin/customers/${id}/approve`)
+      const approver = inviter === 'admin' ? 'sa' : 'admin'
+      const approved = await (await decider(approver)).post(`/api/admin/customers/${id}/approve`)
       expect(approved.statusCode, `${approver} approves ${inviter}'s invitee`).toBe(200)
       const row = await h.prisma.customer.findUniqueOrThrow({ where: { id } })
       expect(row).toMatchObject({ status: 'ACTIVE', invitedById: people[inviter]!.id, approvedById: people[approver]!.id })
@@ -224,10 +274,35 @@ describe('invitations (option C) and separation of duties', () => {
     await expect(h.prisma.customer.create({ data: { email: h.email('upper').toUpperCase(), firstName: 'T', lastName: 'U', phone: '1', companyName: 'X', passwordHash: 'x' } })).rejects.toThrow()
   })
 
-  it('does not let Sales or Warehouse invite', async () => {
+  it('lets only Admin and Super Admin invite directly; Managers request; Sales and Warehouse do neither', async () => {
     const body = { email: h.email('no-invite'), firstName: 'T', lastName: 'N', phone: '+856 20 0000 1111', companyName: 'X' }
-    expect((await (await who('salesA')).post('/api/admin/customers/invitations', body)).json().error.code).toBe('forbidden')
-    expect((await (await who('warehouse')).post('/api/admin/customers/invitations', body)).json().error.code).toBe('forbidden')
+    for (const name of ['managerA', 'salesA', 'warehouse']) {
+      expect((await (await who(name)).post('/api/admin/customers/invitations', body)).json().error.code, name).toBe('forbidden')
+    }
+    for (const name of ['salesA', 'warehouse']) {
+      expect((await (await who(name)).post('/api/admin/customers/invitation-requests', body)).json().error.code, name).toBe('forbidden')
+      expect((await (await who(name)).get('/api/admin/customers/invitation-requests')).json().error.code, name).toBe('forbidden')
+    }
+    expect((await (await who('managerA')).post('/api/admin/customers/invitation-requests', body)).statusCode).toBe(202)
+  })
+
+  it('requires a Manager to belong to a team before requesting an invitation (same answer for every email)', async () => {
+    const existing = await h.customer('team-required-existing', { teamId: teamB.id })
+    const agent = await who('managerNoTeam')
+    const before = await h.prisma.customerInvitationRequest.count({ where: { requestedById: people.managerNoTeam!.id } })
+    const answers = []
+    for (const email of [existing.email, h.email('team-required-new')]) {
+      const response = await agent.post('/api/admin/customers/invitation-requests', { email, firstName: 'T', lastName: 'N', phone: '+856 20 0000 2222', companyName: 'X' })
+      expect(response.statusCode).toBe(403)
+      expect(response.json().error.code).toBe('team_required')
+      answers.push(response.body)
+    }
+    expect(answers[1]).toBe(answers[0])
+    expect(await h.prisma.customerInvitationRequest.count({ where: { requestedById: people.managerNoTeam!.id } })).toBe(before)
+    expect(await h.prisma.auditEvent.count({ where: { actorId: people.managerNoTeam!.id, type: 'customer_invitation_requested' } })).toBe(0)
+    // Managers with a team are unaffected; Admins (no team) may still file requests.
+    expect((await (await who('managerA')).post('/api/admin/customers/invitation-requests', { email: h.email('team-ok'), firstName: 'T', lastName: 'N', phone: '+856 20 0000 3333', companyName: 'X' })).statusCode).toBe(202)
+    expect((await (await who('admin')).post('/api/admin/customers/invitation-requests', { email: h.email('team-admin'), firstName: 'T', lastName: 'N', phone: '+856 20 0000 4444', companyName: 'X' })).statusCode).toBe(202)
   })
 })
 
