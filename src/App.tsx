@@ -32,6 +32,7 @@ import Login from "./pages/Login"
 import Register from "./pages/Register"
 import ForgotPassword from "./pages/ForgotPassword"
 import AdminLogin from "./pages/AdminLogin"
+import SetPassword from "./pages/SetPassword"
 import NotFound from "./pages/NotFound"
 import Compare from "./pages/Compare"
 import Services from "./pages/Services"
@@ -43,17 +44,30 @@ import Partners from "./pages/Partners"
 import Industries from "./pages/Industries"
 import Sales from "./pages/Sales"
 
+/** Shown while the first server session check runs (API mode), so no route decides before the server answers. */
+function SessionCheck() {
+  return (
+    <div role="status" className="font-ui text-[13px] py-24 text-center" style={{ color: "var(--nb-text-secondary)" }}>
+      Checking your session…
+    </div>
+  )
+}
+
+/** Customer pages: only a customer session counts (staff sessions never do). */
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, ready } = useAuth()
   const location = useLocation()
+  if (!ready) return <SessionCheck />
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location.pathname }} replace />
   }
   return <>{children}</>
 }
 
+/** Admin Portal: only a staff session with full access (password and 2FA steps done, checked by the server). */
 function AdminRoute({ children }: { children: React.ReactNode }) {
-  const { isAdmin } = useAuth()
+  const { isAdmin, ready } = useAuth()
+  if (!ready) return <SessionCheck />
   if (!isAdmin) {
     return <Navigate to="/admin/login" replace />
   }
@@ -85,6 +99,7 @@ export default function App() {
               <Route path="/register" element={<Register />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/admin/login" element={<AdminLogin />} />
+              <Route path="/account/set-password" element={<SetPassword />} />
 
               {/* Admin panel — its own layout */}
               <Route

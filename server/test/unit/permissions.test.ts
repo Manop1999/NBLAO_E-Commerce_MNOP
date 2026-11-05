@@ -64,6 +64,16 @@ describe('permissions: catalog integrity', () => {
       'audit.export',
       'import.start',
       'import.confirm',
+      // Phase 1E account management
+      'customers.approve',
+      'customers.invite',
+      'customers.request_invite',
+      'customers.assign',
+      'customers.reset_password',
+      'staff.reset_password',
+      'staff.mfa_reset',
+      'teams.manage',
+      'audit.view_security',
     ]) {
       expect(isPermissionCode(code)).toBe(true)
     }

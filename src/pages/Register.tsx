@@ -38,7 +38,10 @@ function Field({ label, name, type = 'text', placeholder, required = true, value
 
 export default function Register() {
   const t = useT()
-  const { register } = useAuth()
+  const { register, source } = useAuth()
+  const api = source === 'api'
+  const minLength = api ? 12 : 6
+  const [received, setReceived] = useState(false)
   const { addToast } = useToast()
   const navigate = useNavigate()
 
@@ -58,7 +61,7 @@ export default function Register() {
     if (!form.email) return 'Email is required.'
     if (!form.phone) return 'Phone number is required.'
     if (!form.company) return 'Company name is required.'
-    if (!form.password || form.password.length < 6) return 'Password must be at least 6 characters.'
+    if (!form.password || [...form.password].length < minLength) return api ? 'Password must be at least 12 characters.' : 'Password must be at least 6 characters.'
     if (form.password !== form.confirmPassword) return 'Passwords do not match.'
     return null
   }
@@ -78,7 +81,10 @@ export default function Register() {
       password: form.password,
     })
     setLoading(false)
-    if (res.success) {
+    if (res.success && api) {
+      // Real registration: the account waits for approval by NB LAO staff; nobody is signed in.
+      setReceived(true)
+    } else if (res.success) {
       addToast('Account created! Welcome to NB LAO.', 'success')
       navigate('/account')
     } else {
@@ -116,17 +122,26 @@ export default function Register() {
           </div>
 
           <div className="rounded-lg bg-white p-8" style={{ border: '1px solid var(--nb-border)' }}>
-            {/* Prototype notice */}
+            {/* Prototype / local-development notice */}
             <div className="rounded-md mb-5 px-4 py-3 font-ui text-[11px] leading-relaxed" style={{ background: 'var(--nb-bg)', border: '1px solid var(--nb-border)', color: 'var(--nb-text-secondary)' }}>
-              Demo registration only: accounts are not stored on the NB LAO server, and demo account data is not kept permanently.
+              {api
+                ? 'New business accounts are reviewed by NB LAO before trade features are enabled. You can sign in while your account awaits approval.'
+                : 'Demo registration only: accounts are not stored on the NB LAO server, and demo account data is not kept permanently.'}
             </div>
+            {received && (
+              <div role="status" className="rounded-md mb-4 px-4 py-4 font-ui text-[13px] leading-relaxed" style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534' }}>
+                <div className="font-600 mb-1">Registration received</div>
+                <div>If this email can be registered, your account now awaits approval by NB LAO. You can sign in to see its status.</div>
+                <Link to="/login" className="inline-block mt-3 font-600 no-underline hover:underline" style={{ color: BLUE }}>Go to sign in</Link>
+              </div>
+            )}
             {error && (
               <div className="rounded-md mb-4 px-4 py-3 font-ui text-[12px]" style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c' }}>
                 {error}
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            {!received && <form onSubmit={handleSubmit} className="flex flex-col gap-4">
               <div className="grid grid-cols-2 gap-4">
                 <Field label={t.auth.full_name} name="firstName" placeholder="John" value={form.firstName} onChange={set('firstName')} />
                 <Field label={t.auth.full_name} name="lastName" placeholder="Doe" value={form.lastName} onChange={set('lastName')} />
@@ -150,7 +165,7 @@ export default function Register() {
                         onChange={set('password')}
                         className={inputClass}
                         style={{ ...inputStyle, paddingRight: 40 }}
-                        placeholder="Min. 6 characters"
+                        placeholder={api ? 'Min. 12 characters' : 'Min. 6 characters'}
                         autoComplete="new-password"
                       />
                       <button
@@ -198,7 +213,7 @@ export default function Register() {
               >
                 {loading ? '...' : t.auth.register}
               </button>
-            </form>
+            </form>}
 
             <div className="mt-6 pt-5 text-center" style={{ borderTop: '1px solid var(--nb-bg)' }}>
               <span className="font-ui text-[12px]" style={{ color: 'var(--nb-text-secondary)' }}>

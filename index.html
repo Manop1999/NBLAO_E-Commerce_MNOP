@@ -4,6 +4,22 @@
     <!-- figma:head-start -->
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Account links (/account/set-password#<one-time token>): before any other script, stylesheet or font loads,
+      // move the token from the address bar into page memory (never storage), replace the history entry, and send
+      // no Referer from this page. src/pages/SetPassword.tsx reads window.__nblaoAccountLinkToken.
+      (function () {
+        if (!/\/account\/set-password\/?$/.test(location.pathname)) return
+        var meta = document.createElement('meta')
+        meta.name = 'referrer'
+        meta.content = 'no-referrer'
+        document.head.appendChild(meta)
+        if (location.hash.length > 1) {
+          window.__nblaoAccountLinkToken = location.hash.slice(1)
+          history.replaceState(history.state, '', location.pathname + location.search)
+        }
+      })()
+    </script>
     <link rel="icon" type="image/png" href="%BASE_URL%nb-lao-logo.png" />
     <title><!-- figma:title --></title>
     <!-- figma:head-end -->

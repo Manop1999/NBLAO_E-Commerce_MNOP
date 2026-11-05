@@ -11,7 +11,8 @@ const BLUE_H = 'var(--nb-primary-deep)'
 const GOLD = 'var(--nb-gold)'
 
 export default function Login() {
-  const { login } = useAuth()
+  const { login, source } = useAuth()
+  const api = source === 'api'
   const { addToast } = useToast()
   const navigate = useNavigate()
   const location = useLocation()
@@ -32,7 +33,8 @@ export default function Login() {
     if (!form.email || !form.password) { setError('Please enter your email and password.'); return }
     setError('')
     setLoading(true)
-    const res = await login(form.email, form.password)
+    // Remember me keeps a customer signed in for up to 30 days (server-side limit); otherwise 12 hours at most.
+    const res = await login(form.email, form.password, remember)
     setLoading(false)
     if (res.success) {
       addToast('Welcome back!', 'success')
@@ -78,7 +80,9 @@ export default function Login() {
           <div className="rounded-lg bg-white p-8" style={{ border: '1px solid var(--nb-border)' }}>
             {/* Prototype notice */}
             <div className="rounded-md mb-5 px-4 py-3 font-ui text-[11px] leading-relaxed" style={{ background: 'var(--nb-bg)', border: '1px solid var(--nb-border)', color: 'var(--nb-text-secondary)' }}>
-              Prototype sign-in: accounts and data are stored only in this browser.
+              {api
+                ? 'Sign in with your NB LAO business account. Your session is kept securely by the NB LAO server.'
+                : 'Prototype sign-in: accounts and data are stored only in this browser.'}
             </div>
 
             {error && (
@@ -166,7 +170,7 @@ export default function Login() {
           </div>
 
           <p className="text-center font-ui text-[11px] mt-5" style={{ color: '#94a3b8' }}>
-            This is a prototype authentication system.{' '}
+            {api ? 'Local development sign-in.' : 'This is a prototype authentication system.'}{' '}
             <Link to="/" className="no-underline hover:underline" style={{ color: 'var(--nb-text-secondary)' }}>
               Back to website
             </Link>

@@ -1,6 +1,8 @@
 import { useState } from "react"
 import BrandLogo from "../components/BrandLogo"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
+import { AUTH_SOURCE, useAuth, type StaffRole } from "../auth"
+import ApiCustomersPanel from "../admin/ApiCustomersPanel"
 import { ORDERS, QUOTATIONS } from "../data"
 import { useStore } from "../store"
 import { CATALOG_SOURCE } from "../catalog/source"
@@ -784,7 +786,8 @@ const PANELS: Record<string, React.ReactNode> = {
   pricing: <PricingAdmin />,
   loyalty: <LoyaltyAdmin />,
   quotations: <QuotationsPanel />,
-  customers: <CustomersPanel />,
+  // API mode: real accounts, approvals and assignment through the local API (Phase 1E).
+  customers: AUTH_SOURCE === "api" ? <ApiCustomersPanel /> : <CustomersPanel />,
   reports: (
     <div className="font-display font-700 text-[22px]" style={{ color: NAVY }}>
       Reports — Coming Soon
@@ -829,9 +832,34 @@ const CloseMenuIcon = () => (
   </svg>
 )
 
+const ROLE_LABELS: Record<StaffRole, string> = {
+  SUPER_ADMIN: "Super Admin",
+  ADMIN: "Admin",
+  MANAGER: "Manager",
+  SALES: "Sales",
+  WAREHOUSE: "Warehouse",
+}
+
+const SignOutIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+    <polyline points="16 17 21 12 16 7" />
+    <line x1="21" y1="12" x2="9" y2="12" />
+  </svg>
+)
+
 export default function Admin() {
   const [active, setActive] = useState("dashboard")
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const { staff, adminLogout } = useAuth()
+  const navigate = useNavigate()
+  const displayName = staff?.displayName ?? "Admin User"
+  const initial = displayName.trim().charAt(0).toUpperCase() || "A"
+
+  const handleSignOut = async () => {
+    await adminLogout()
+    navigate("/admin/login", { replace: true })
+  }
 
   const handleNav = (id: string) => {
     setActive(id)
@@ -889,9 +917,17 @@ export default function Admin() {
 
       {/* Back to site */}
       <div
-        className="px-4 py-4"
+        className="px-4 py-4 flex flex-col gap-3"
         style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
       >
+        <button
+          type="button"
+          onClick={() => void handleSignOut()}
+          className="flex items-center gap-2 font-ui text-[12px] text-left"
+          style={{ color: "rgba(255,255,255,0.55)" }}
+        >
+          <SignOutIcon /> Sign Out
+        </button>
         <Link
           to="/"
           className="flex items-center gap-2 font-ui text-[12px] no-underline"
@@ -934,7 +970,9 @@ export default function Admin() {
       <main className="flex-1 lg:ml-56 min-w-0">
         {/* Prototype notice: this Admin portal has no server-side security yet (Phase 1E). */}
         <div role="note" className="px-4 lg:px-8 py-2 font-ui text-[11px] leading-snug" style={{ background: "#FEF3C7", color: "#92400E", borderBottom: "1px solid #F3DCA0" }}>
-          Prototype Admin: demo sign-in and data stored only in this browser. Not production-secure.
+          {AUTH_SOURCE === "api"
+            ? "Local development: sign-in and Customers use the local API. Other sections still use demo data stored only in this browser."
+            : "Prototype Admin: demo sign-in and data stored only in this browser. Not production-secure."}
           {CATALOG_SOURCE === "api" && " The storefront currently reads products from the catalog API; catalog edits here stay local and do not change it."}
         </div>
         {/* Top bar */}
@@ -958,18 +996,32 @@ export default function Admin() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <div
-              className="font-ui text-[12px] hidden sm:block"
-              style={{ color: "var(--nb-text-secondary)" }}
-            >
-              Admin User
+            <div className="hidden sm:block text-right">
+              <div className="font-ui text-[12px]" style={{ color: "var(--nb-text-secondary)" }} data-i18n-skip>
+                {displayName}
+              </div>
+              {staff && AUTH_SOURCE === "api" && (
+                <div className="font-ui text-[10px] uppercase tracking-wider" style={{ color: "#94a3b8" }} data-i18n-skip>
+                  {ROLE_LABELS[staff.role]}
+                </div>
+              )}
             </div>
             <div
               className="w-7 h-7 lg:w-8 lg:h-8 flex items-center justify-center font-display font-700 text-white text-[12px]"
               style={{ background: NAVY }}
+              aria-hidden="true"
             >
-              A
+              {initial}
             </div>
+            <button
+              type="button"
+              onClick={() => void handleSignOut()}
+              className="rounded-md flex items-center gap-1.5 font-ui text-[12px] font-600 px-2.5 py-1.5"
+              style={{ border: "1px solid var(--nb-border)", color: "#475569" }}
+              aria-label="Sign Out"
+            >
+              <SignOutIcon /> <span className="hidden sm:inline">Sign Out</span>
+            </button>
           </div>
         </div>
 

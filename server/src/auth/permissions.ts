@@ -1,8 +1,7 @@
 /**
  * Permission codes for server-side authorization.
  *
- * DRAFT: the codes follow the proposed Phase 1A permission matrix. Which roles receive which codes is
- * decision D12 and is intentionally NOT defined here. Nothing is granted by default.
+ * Which roles receive which codes (decision D12) lives in roles.ts. Nothing is granted by default.
  */
 export const PERMISSION_CODES = [
   'catalog.view',
@@ -18,11 +17,20 @@ export const PERMISSION_CODES = [
   'inventory.export',
   'inventory.import',
   'customers.view',
+  'customers.approve',
+  'customers.invite',
+  // File an invitation request that an Admin reviews (Managers): no customer lookup, so no email enumeration.
+  'customers.request_invite',
+  'customers.assign',
+  'customers.reset_password',
   'customers.export',
   'customers.export_contact',
   'customers.import',
   'addresses.export',
   'staff.manage',
+  'staff.reset_password',
+  'staff.mfa_reset',
+  'teams.manage',
   'staff.export',
   'staff.export_contact',
   'staff.import',
@@ -50,6 +58,7 @@ export const PERMISSION_CODES = [
   'loyalty.adjust',
   'reviews.moderate',
   'audit.view',
+  'audit.view_security',
   'audit.export',
   'import.start',
   'import.preview',

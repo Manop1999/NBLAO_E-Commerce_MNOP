@@ -1,8 +1,8 @@
 // Checks the production document shell after `pnpm build`: the site title and social meta from
 // .figma/make/site.json were applied, no Figma Make placeholder or default title survived, and the
 // GitHub Pages SPA fallback (404.html) matches index.html. It also refuses builds that must never be published:
-// a build made with VITE_CATALOG_SOURCE=api (local development only) or any bundle that mentions a local
-// address. Usage: node scripts/verify-build-output.mjs [distDir]
+// a build made with VITE_CATALOG_SOURCE=api or VITE_AUTH_SOURCE=api (local development only) or any bundle that
+// mentions a local address. Usage: node scripts/verify-build-output.mjs [distDir]
 import { readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 
@@ -44,6 +44,16 @@ try {
 if (buildInfo && buildInfo.catalogSource !== 'demo') {
   failures.push(`catalog source is ${JSON.stringify(buildInfo.catalogSource)}; only "demo" builds may be published`)
 }
+// The temporary privileged staff namespace (admin.nblao.invalid) is local-only and must never ship in a published
+// build; Phase 1H replaces it with a verified NB LAO domain.
+for (const file of readdirSync(path.join(dist, 'assets')).filter(name => /\.(js|css|html)$/.test(name))) {
+  if (readFileSync(path.join(dist, 'assets', file), 'utf8').includes('nblao.invalid')) failures.push(`assets/${file} contains the temporary .invalid staff namespace`)
+}
+if (html.includes('nblao.invalid')) failures.push('index.html contains the temporary .invalid staff namespace')
+// Real sign-in (VITE_AUTH_SOURCE=api) is local development only until HTTPS hosting exists (Phase 1H).
+if (buildInfo && buildInfo.authSource !== 'demo') {
+  failures.push(`auth source is ${JSON.stringify(buildInfo.authSource)}; only "demo" builds may be published`)
+}
 
 // React Router ships a port-less "http://localhost" placeholder base URL, so only addresses with a port (or a
 // loopback IP) count. The local API is 127.0.0.1:3001.
@@ -59,4 +69,4 @@ if (failures.length) {
   console.error(`Build output check failed (${dist}):\n- ${failures.join('\n- ')}`)
   process.exit(1)
 }
-console.log(`Build output OK: "${site.title}", catalog source ${buildInfo.catalogSource}`)
+console.log(`Build output OK: "${site.title}", catalog source ${buildInfo.catalogSource}, auth source ${buildInfo.authSource}`)

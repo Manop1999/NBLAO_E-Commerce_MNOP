@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import BrandLogo from '../components/BrandLogo'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth'
 import { useToast } from '../components/Toast'
+import StaffStageFlow from './AdminMfa'
 
 const DARK = '#070f1e'
 const NAVY = 'var(--nb-navy)'
@@ -10,7 +11,10 @@ const BLUE = 'var(--nb-primary)'
 const GOLD = 'var(--nb-gold)'
 
 export default function AdminLogin() {
-  const { adminLogin } = useAuth()
+  const { adminLogin, source, staff, isAdmin, ready } = useAuth()
+  const api = source === 'api'
+  // Keeps the page open while freshly issued 2FA recovery codes are on screen.
+  const [hold, setHold] = useState(false)
   const { addToast } = useToast()
   const navigate = useNavigate()
 
@@ -18,6 +22,11 @@ export default function AdminLogin() {
   const [showPw, setShowPw] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  // The server decides when a staff session has full access; only then does the Admin Portal open.
+  useEffect(() => {
+    if (api && ready && isAdmin && !hold) navigate('/admin', { replace: true })
+  }, [api, ready, isAdmin, hold, navigate])
 
   const set = (f: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm(v => ({ ...v, [f]: e.target.value }))
@@ -29,7 +38,11 @@ export default function AdminLogin() {
     setLoading(true)
     const res = await adminLogin(form.email, form.password)
     setLoading(false)
-    if (res.success) {
+    if (res.success && api) {
+      setForm({ email: '', password: '' })
+      if (res.stage === 'FULL') addToast('Admin access granted.', 'success')
+      // Other stages: the next step (2FA, password change, 2FA setup) is shown below; the effect above navigates.
+    } else if (res.success) {
       addToast('Admin access granted.', 'success')
       navigate('/admin', { replace: true })
     } else {
@@ -57,7 +70,9 @@ export default function AdminLogin() {
 
         <div className="rounded-lg p-8" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
           <div className="rounded-md mb-5 px-4 py-3 font-ui text-[11px] leading-relaxed" style={{ background: 'rgba(212,175,55,0.08)', border: '1px solid rgba(212,175,55,0.2)', color: 'rgba(212,175,55,0.8)' }}>
-            Prototype admin: changes are stored only in this browser.
+            {api
+              ? 'Staff sign-in for NB LAO. Super Admin, Admin and Manager accounts need two-factor authentication.'
+              : 'Prototype admin: changes are stored only in this browser.'}
           </div>
 
           {error && (
@@ -66,6 +81,7 @@ export default function AdminLogin() {
             </div>
           )}
 
+          {(api && staff && staff.stage !== 'FULL') || hold ? (staff && <StaffStageFlow staff={staff} onHold={setHold} />) : (
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div>
               <label className="block font-ui text-[11px] font-600 mb-1.5 uppercase tracking-[0.08em]" style={{ color: 'rgba(255,255,255,0.5)' }}>
@@ -77,7 +93,8 @@ export default function AdminLogin() {
                 onChange={set('email')}
                 className={inputClass}
                 style={inputStyle}
-                placeholder="admin@nblao.la"
+                autoComplete="username"
+                placeholder={api ? 'name@company.com' : 'admin@nblao.la'}
               />
             </div>
 
@@ -92,6 +109,7 @@ export default function AdminLogin() {
                   onChange={set('password')}
                   className={inputClass}
                   style={{ ...inputStyle, paddingRight: 44 }}
+                  autoComplete="current-password"
                   placeholder="••••••••"
                 />
                 <button
@@ -114,6 +132,7 @@ export default function AdminLogin() {
               {loading ? 'Authenticating…' : 'Sign In to Admin'}
             </button>
           </form>
+          )}
         </div>
 
         <div className="mt-6 text-center">

@@ -1,51 +1,12 @@
 import { useLayoutEffect } from 'react'
-import { fromEnglish } from '../lib/dictionaries'
+import { exactOnly, fromEnglish, messageTemplates } from '../lib/dictionaries'
+import { createTranslator } from '../lib/translateText'
 import { useStore } from '../store'
 
 import type { Lang } from '../lib/language'
 
-function invert(dict: Record<string, string>) {
-  const out: Record<string, string> = {}
-  for (const [english, local] of Object.entries(dict)) if (!(local in out)) out[local] = english
-  return out
-}
-const toEnglish: Record<'lo' | 'th', Record<string, string>> = {
-  lo: invert(fromEnglish.lo),
-  th: invert(fromEnglish.th),
-}
-const byLength = (d: Record<string, string>) => Object.entries(d).sort((a, b) => b[0].length - a[0].length)
-const entriesFor = {
-  fromEnglish: { lo: byLength(fromEnglish.lo), th: byLength(fromEnglish.th) },
-  toEnglish: { lo: byLength(toEnglish.lo), th: byLength(toEnglish.th) },
-}
-
-function applyEntries(value: string, entries: [string, string][]) {
-  let result = value
-  for (const [from, to] of entries) {
-    if (from.length < 2 || !result.includes(from)) continue
-    if (/[A-Za-z]/.test(from)) {
-      const escaped = from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const pattern = new RegExp(`(^|[^A-Za-z])${escaped}(?=$|[^A-Za-z])`, 'g')
-      result = result.replace(pattern, (_, prefix: string) => `${prefix}${to}`)
-    } else {
-      result = result.split(from).join(to)
-    }
-  }
-  return result
-}
-
-function translate(value: string, lang: Lang) {
-  if (!value.trim()) return value
-  const trimmed = value.trim()
-  if (lang === 'en') {
-    const direct = toEnglish.lo[trimmed] ?? toEnglish.th[trimmed]
-    if (direct) return value.replace(trimmed, direct)
-    return applyEntries(applyEntries(value, entriesFor.toEnglish.lo), entriesFor.toEnglish.th)
-  }
-  const direct = fromEnglish[lang][trimmed]
-  if (direct) return value.replace(trimmed, direct)
-  return applyEntries(value, entriesFor.fromEnglish[lang])
-}
+// Rules (whole-text matches, phrase substitution, guarded short words, exact-only keys): src/lib/translateText.ts
+const { translate } = createTranslator({ fromEnglish, exactOnly, templates: messageTemplates })
 
 const translatedAttributes = ['aria-label', 'placeholder', 'title', 'alt']
 const canonicalText = new WeakMap<Text, string>()
